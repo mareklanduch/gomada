@@ -1,0 +1,5 @@
+NAME     SECURITY        BAND             GUEST  HIDDEN
+Guests   open            2.4 + 5 GHz      yes    no
+Home-5G  WPA-Personal    5 GHz            no     no
+IoT      WPA-Personal    2.4 GHz          no     yes
+Staff    WPA-Enterprise  2.4 + 5 + 6 GHz  no     no

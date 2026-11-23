@@ -47,6 +47,11 @@ type IO struct {
 	Interactive bool
 	// ReadPassword reads a line without echoing it.
 	ReadPassword func() (string, error)
+	// Now returns the current time. Nil means time.Now.
+	Now func() time.Time
+	// PollEvery is how often a command that waits for the controller asks
+	// again. Zero means every five seconds.
+	PollEvery time.Duration
 	// RunTUI starts the terminal UI.
 	RunTUI func(ctx context.Context, a *app.App, opts tui.Options) error
 }
@@ -183,7 +188,7 @@ available as a command for use in scripts.`,
 	f.BoolVar(&c.noTokenCache, "no-token-cache", false, "log in on every run and store no access token")
 	f.StringVar(&c.configPath, "config", "", "config file to use (default: $GOMADA_CONFIG or the standard location)")
 
-	root.AddCommand(c.hostCmd(), c.siteCmd(), c.deviceCmd(), c.clientCmd(), c.versionCmd())
+	root.AddCommand(c.hostCmd(), c.siteCmd(), c.deviceCmd(), c.clientCmd(), c.wifiCmd(), c.alertCmd(), c.versionCmd())
 	return root
 }
 
@@ -217,6 +222,7 @@ func (c *cli) app() (*app.App, error) {
 		Timeout:      c.timeout,
 		NoTokenCache: c.noTokenCache,
 		Passphrase:   c.askPassphrase,
+		Now:          c.Now,
 	}
 	if c.verbose {
 		opts.Logger = slog.New(slog.NewTextHandler(c.Err, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -234,6 +240,14 @@ func (c *cli) askPassphrase(host string) (string, error) {
 		return "", secret.ErrPassphraseRequired
 	}
 	return c.promptHidden(fmt.Sprintf("Passphrase for host %q: ", host))
+}
+
+// pollEvery is how often a waiting command asks the controller again.
+func (c *cli) pollEvery() time.Duration {
+	if c.PollEvery > 0 {
+		return c.PollEvery
+	}
+	return 5 * time.Second
 }
 
 // outputFormat validates the --output flag.

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "alert-1",
+    "time": "2026-11-23T11:10:00Z",
+    "level": "Warning",
+    "module": "Device",
+    "resolved": false,
+    "message": "[ap:AP garage:AA-00-00-00-00-04] was disconnected."
+  },
+  {
+    "id": "alert-2",
+    "time": "2026-11-22T22:00:00Z",
+    "level": "Error",
+    "module": "Device",
+    "resolved": false,
+    "message": "[switch:Rack switch:AA-00-00-00-00-02] port 7 was shut down because the PoE budget was exceeded. Reduce the load on the switch or raise the budget, then turn the port back on."
+  },
+  {
+    "id": "alert-3",
+    "time": "2026-11-20T19:00:00Z",
+    "level": "Information",
+    "module": "Client",
+    "resolved": true,
+    "message": "[client:Unknown phone:7A-11-22-33-44-55] was blocked."
+  }
+]

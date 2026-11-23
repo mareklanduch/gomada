@@ -1,0 +1,35 @@
+[
+  {
+    "id": "ssid-3",
+    "name": "Guests",
+    "security": "open",
+    "band": "2.4 + 5 GHz",
+    "guest": true,
+    "hidden": false
+  },
+  {
+    "id": "ssid-1",
+    "name": "Home-5G",
+    "security": "WPA-Personal",
+    "band": "5 GHz",
+    "guest": false,
+    "hidden": false
+  },
+  {
+    "id": "ssid-2",
+    "name": "IoT",
+    "security": "WPA-Personal",
+    "band": "2.4 GHz",
+    "guest": false,
+    "hidden": true,
+    "vlan_id": 30
+  },
+  {
+    "id": "ssid-4",
+    "name": "Staff",
+    "security": "WPA-Enterprise",
+    "band": "2.4 + 5 + 6 GHz",
+    "guest": false,
+    "hidden": false
+  }
+]

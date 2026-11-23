@@ -159,3 +159,65 @@ func TestMatches(t *testing.T) {
 		}
 	}
 }
+
+func TestTimestamp(t *testing.T) {
+	if got := output.Timestamp(time.Time{}); got != "-" {
+		t.Errorf("zero time = %q", got)
+	}
+	at := time.Date(2026, 11, 23, 1, 10, 59, 0, time.Local)
+	if got := output.Timestamp(at); got != "2026-11-23 01:10" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestSSIDFields(t *testing.T) {
+	no := false
+	personal := output.SSIDFields(omada.SSID{Name: "IoT", Security: omada.SecurityPersonal, Band: omada.Band2G, Broadcast: &no, VLANOn: true, VLANID: 30}, "s3cret")
+	if value(personal, "Password") != "s3cret" || value(personal, "Hidden") != "yes" || value(personal, "VLAN") != "30" || value(personal, "Band") != "2.4 GHz" {
+		t.Errorf("personal = %+v", personal)
+	}
+	open := output.SSIDFields(omada.SSID{Name: "Guests", Guest: true}, "ignored")
+	if value(open, "Password") != "" || value(open, "Guest network") != "yes" || value(open, "Security") != "open" || value(open, "VLAN") != "" {
+		t.Errorf("open = %+v; want no password and no VLAN field", open)
+	}
+}
+
+func TestAlertFields(t *testing.T) {
+	a := omada.Alert{Level: "Error", Module: "Device", Content: "port 7 down", Millis: 1}
+	f := output.AlertFields(a)
+	if value(f, "State") != "unresolved" || value(f, "Message") != "port 7 down" || value(f, "Level") != "Error" {
+		t.Errorf("fields = %+v", f)
+	}
+	a.Resolved = true
+	if output.AlertState(a) != "resolved" {
+		t.Error("want resolved")
+	}
+}
+
+func TestFirmwareFields(t *testing.T) {
+	d := omada.Device{Name: "AP office", Firmware: "1.0.14"}
+	update := output.FirmwareFields(d, omada.Firmware{Current: "1.0.14", Latest: "1.1.2", ReleaseNotes: "Faster."})
+	if value(update, "Latest") != "1.1.2 (update available)" || value(update, "Release notes") != "Faster." || value(update, "Installed") != "1.0.14" {
+		t.Errorf("update = %+v", update)
+	}
+	same := output.FirmwareFields(d, omada.Firmware{Current: "1.0.14", Latest: "1.0.14", ReleaseNotes: "old"})
+	if value(same, "Latest") != "up to date" || value(same, "Release notes") != "" {
+		t.Errorf("same = %+v", same)
+	}
+	unknown := output.FirmwareFields(d, omada.Firmware{})
+	if value(unknown, "Latest") != "unknown" || value(unknown, "Installed") != "1.0.14" {
+		t.Errorf("unknown = %+v; want the version from the device list as a fallback", unknown)
+	}
+}
+
+func TestFieldsWithSeveralLines(t *testing.T) {
+	var buf bytes.Buffer
+	err := output.Fields(&buf, []output.Field{{"Latest", "1.1.2"}, {"Release notes", "1. Faster.\n2. Safer.\n"}, {"Büro", "x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Latest:         1.1.2\nRelease notes:  1. Faster.\n                2. Safer.\nBüro:           x\n"
+	if buf.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", buf.String(), want)
+	}
+}

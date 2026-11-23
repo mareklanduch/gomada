@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -51,8 +52,8 @@ func clientRow(n omada.NetClient) []string {
 
 func (c *cli) clientListCmd() *cobra.Command {
 	var (
-		wired, wireless bool
-		filter          string
+		wired, wireless, blocked bool
+		filter                   string
 	)
 	cmd := &cobra.Command{
 		Use:     "list",
@@ -67,9 +68,15 @@ func (c *cli) clientListCmd() *cobra.Command {
 			if wired && wireless {
 				return usagef("--wired and --wireless exclude each other; leave both out to see all clients")
 			}
+			if blocked && (wired || wireless) {
+				return usagef("--blocked lists blocked clients and cannot be combined with --wired or --wireless")
+			}
 			s, site, err := c.connectSite(cmd)
 			if err != nil {
 				return err
+			}
+			if blocked {
+				return c.listBlocked(cmd, format, session{s, site}, filter)
 			}
 			all, err := s.Clients(cmd.Context(), site.ID)
 			if err != nil {
@@ -98,8 +105,56 @@ func (c *cli) clientListCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&wired, "wired", false, "show only wired clients")
 	cmd.Flags().BoolVar(&wireless, "wireless", false, "show only wireless clients")
+	cmd.Flags().BoolVar(&blocked, "blocked", false, "list the clients that are blocked, which are not connected")
 	cmd.Flags().StringVar(&filter, "filter", "", "show only clients with this text in any column, such as a network or access point name")
 	return cmd
+}
+
+type blockedJSON struct {
+	MAC      string `json:"mac"`
+	Name     string `json:"name"`
+	Wireless bool   `json:"wireless"`
+	LastSeen string `json:"last_seen,omitempty"` // RFC 3339, UTC
+}
+
+// listBlocked prints the clients that are barred from the site.
+func (c *cli) listBlocked(cmd *cobra.Command, format output.Format, s session, filter string) error {
+	all, err := s.BlockedClients(cmd.Context(), s.site.ID)
+	if err != nil {
+		return err
+	}
+	row := func(k omada.KnownClient) []string {
+		kind := "wired"
+		if k.Wireless {
+			kind = "wireless"
+		}
+		return []string{k.Label(), k.MAC, kind, output.Timestamp(k.LastSeen())}
+	}
+	blocked := []omada.KnownClient{}
+	for _, k := range all {
+		if output.Matches(row(k), filter) {
+			blocked = append(blocked, k)
+		}
+	}
+	if format == output.FormatJSON {
+		out := make([]blockedJSON, len(blocked))
+		for i, k := range blocked {
+			out[i] = blockedJSON{MAC: k.MAC, Name: k.Name, Wireless: k.Wireless}
+			if seen := k.LastSeen(); !seen.IsZero() {
+				out[i].LastSeen = seen.UTC().Format(time.RFC3339)
+			}
+		}
+		return output.JSON(c.Out, out)
+	}
+	if len(blocked) == 0 {
+		fmt.Fprintln(c.Err, "No client is blocked.")
+		return nil
+	}
+	rows := make([][]string, len(blocked))
+	for i, k := range blocked {
+		rows[i] = row(k)
+	}
+	return output.Table(c.Out, []string{"name", "mac", "type", "last seen"}, rows)
 }
 
 // findClient resolves the CLIENT argument of a command.

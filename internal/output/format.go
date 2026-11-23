@@ -84,3 +84,19 @@ func OrNone(s string) string {
 	}
 	return s
 }
+
+// Timestamp formats a moment in local time: "2026-11-23 01:10".
+func Timestamp(t time.Time) string {
+	if t.IsZero() {
+		return None
+	}
+	return t.Local().Format("2006-01-02 15:04")
+}
+
+// YesNo formats a flag.
+func YesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}

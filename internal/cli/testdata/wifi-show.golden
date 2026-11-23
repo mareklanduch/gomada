@@ -1,0 +1,6 @@
+Name:           Home-5G
+Security:       WPA-Personal
+Band:           5 GHz
+Guest network:  no
+Hidden:         no
+Password:       hidden; pass --password to show it

@@ -1,0 +1,14 @@
+[
+  {
+    "mac": "CC-00-00-00-00-01",
+    "name": "Laptop",
+    "wireless": true,
+    "last_seen": "2026-11-23T11:50:00Z"
+  },
+  {
+    "mac": "CC-00-00-00-00-03",
+    "name": "printer",
+    "wireless": true,
+    "last_seen": "2026-11-23T11:50:00Z"
+  }
+]

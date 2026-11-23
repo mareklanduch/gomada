@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"text/tabwriter"
+	"unicode/utf8"
 )
 
 // Format is how the command line prints results.
@@ -48,15 +49,22 @@ func Table(w io.Writer, header []string, rows [][]string) error {
 	return tw.Flush()
 }
 
-// Fields writes labeled values, one per line, with the values aligned.
+// Fields writes labeled values, one per line, with the values aligned. The
+// further lines of a value that has several are indented to match.
 func Fields(w io.Writer, fields []Field) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	width := 0
 	for _, f := range fields {
-		if _, err := fmt.Fprintf(tw, "%s:\t%s\n", f.Label, f.Value); err != nil {
+		width = max(width, utf8.RuneCountInString(f.Label)+1)
+	}
+	for _, f := range fields {
+		label := f.Label + ":"
+		pad := strings.Repeat(" ", width-utf8.RuneCountInString(label)+2)
+		value := strings.ReplaceAll(strings.TrimRight(f.Value, "\n"), "\n", "\n"+strings.Repeat(" ", width+2))
+		if _, err := fmt.Fprintln(w, label+pad+value); err != nil {
 			return err
 		}
 	}
-	return tw.Flush()
+	return nil
 }
 
 // JSON writes v as indented JSON.

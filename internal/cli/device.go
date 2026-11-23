@@ -12,7 +12,8 @@ import (
 
 func (c *cli) deviceCmd() *cobra.Command {
 	cmd := group("device", "List and manage gateways, switches, and access points")
-	cmd.AddCommand(c.deviceListCmd(), c.deviceShowCmd(), c.deviceRebootCmd(), c.deviceRenameCmd())
+	cmd.AddCommand(c.deviceListCmd(), c.deviceShowCmd(), c.deviceRebootCmd(), c.deviceRenameCmd(),
+		c.deviceFirmwareCmd(), c.deviceUpgradeCmd())
 	return cmd
 }
 
@@ -49,7 +50,10 @@ func deviceRow(d omada.Device) []string {
 }
 
 func (c *cli) deviceListCmd() *cobra.Command {
-	var deviceType, filter string
+	var (
+		deviceType, filter string
+		updates            bool
+	)
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
@@ -80,6 +84,9 @@ func (c *cli) deviceListCmd() *cobra.Command {
 					devs = append(devs, d)
 				}
 			}
+			if updates {
+				return c.listUpdates(cmd, format, session{s, site}, devs)
+			}
 			if format == output.FormatJSON {
 				out := make([]deviceJSON, len(devs))
 				for i, d := range devs {
@@ -96,6 +103,7 @@ func (c *cli) deviceListCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&deviceType, "type", "", "show only this type: gateway, switch, or ap")
 	cmd.Flags().StringVar(&filter, "filter", "", "show only devices with this text in any column")
+	cmd.Flags().BoolVar(&updates, "updates", false, "show only connected devices with a firmware update waiting")
 	return cmd
 }
 
