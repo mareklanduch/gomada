@@ -1,0 +1,65 @@
+name: Release
+
+# Every merge to main is checked and, when its commits call for a new
+# version, tagged and released with executables for Linux, macOS, and
+# Windows. See scripts/next-version.sh for how the version is chosen: a merge
+# with only docs, tests, or chores releases nothing.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One release at a time, and never cancel one halfway.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Tag and publish
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # create the tag and the GitHub release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the version is computed from history and tags
+
+      - name: Choose the version
+        id: version
+        run: echo "next=$(bash scripts/next-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Nothing to release
+        if: steps.version.outputs.next == ''
+        run: echo "No feat, fix, or perf commits since the last release; nothing to publish." >> "$GITHUB_STEP_SUMMARY"
+
+      # The tag is created and built in the same job on purpose: a tag pushed
+      # by a workflow does not start other workflows.
+      - name: Tag
+        if: steps.version.outputs.next != ''
+        env:
+          NEXT: ${{ steps.version.outputs.next }}
+        run: |
+          git tag "$NEXT"
+          git push origin "$NEXT"
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        if: steps.version.outputs.next != ''
+        with:
+          go-version-file: go.mod
+
+      - name: Build and publish
+        if: steps.version.outputs.next != ''
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
