@@ -2,7 +2,10 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mareklanduch/gomada/internal/app"
 	"github.com/mareklanduch/gomada/internal/omada"
@@ -23,7 +26,9 @@ type list struct {
 	actions []action
 	// details returns the heading and fields shown when a row is opened.
 	// Nil means opening a row does something else.
-	details func(item any) (string, []output.Field)
+	details func(m *Model, item any) (string, []output.Field)
+	// open, when set, replaces details: it decides what opening a row does.
+	open func(m *Model, item any) tea.Cmd
 }
 
 // selected returns the thing the cursor is on.
@@ -49,22 +54,58 @@ type target struct {
 type action struct {
 	key   string // the key that triggers it, e.g. "r"
 	label string // the word in the key hints, e.g. "reboot"
+	// help describes the action in the key list. Empty means the label
+	// followed by "the selected <noun>".
+	help string
 	// confirm returns the question to ask before running. Nil means the
 	// action runs without asking.
 	confirm func(item any) string
 	// prompt returns the label and starting text of a text field to show
 	// before running. Nil means the action takes no input.
-	prompt func(item any) (label, initial string)
+	prompt func(t target, item any) (label, initial string)
 	// run does the work, off the UI goroutine, and returns the message to
 	// show when it is done.
 	run func(ctx context.Context, t target, item any, input string) (string, error)
 }
 
-// tab is a list that loads its rows from the open site.
+// tab is a list that loads its rows from the open site. A new tab is added by
+// describing it here and listing it in New.
 type tab struct {
 	title string
 	list
 	load func(ctx context.Context, s *app.Session, siteID string) ([]table.Row, map[string]any, error)
+
+	// badge returns a suffix for the title in the tab bar, such as a count.
+	badge func(t *tab) string
+	// background keeps the tab loaded and current while it is not on
+	// screen, for the sake of its badge.
+	background bool
+	// enrich fetches data that takes longer than the rows themselves. It
+	// runs after the rows are on screen and reports whether it found
+	// anything new, in which case the rows are loaded once more.
+	enrich func(ctx context.Context, s *app.Session, siteID string, items map[string]any) bool
+	// alt is a second view of the same tab, switched with B: for example
+	// the blocked clients next to the connected ones. hint names a view in
+	// the key hints of the other.
+	alt     *tab
+	showAlt bool
+	hint    string
+}
+
+// active returns the view of the tab that is on screen.
+func (t *tab) active() *tab {
+	if t.showAlt && t.alt != nil {
+		return t.alt
+	}
+	return t
+}
+
+// other returns the view of the tab that is not on screen.
+func (t *tab) other() *tab {
+	if t.showAlt || t.alt == nil {
+		return t
+	}
+	return t.alt
 }
 
 func hostsList() list {
@@ -123,6 +164,10 @@ const (
 	symbolOther   = "◐"
 )
 
+// updateMark follows the firmware version of a device that has an update
+// waiting.
+const updateMark = "↑"
+
 func devicesTab() *tab {
 	return &tab{
 		title: "Devices",
@@ -134,15 +179,23 @@ func devicesTab() *tab {
 				{Title: "TYPE"},
 				{Title: "STATUS"},
 				{Title: "MODEL"},
+				{Title: "FIRMWARE"},
 				{Title: "IP"},
 				{Title: "UPTIME"},
 				{Title: "CPU", Numeric: true},
 				{Title: "MEM", Numeric: true},
 				{Title: "MAC"},
 			}, 2),
-			details: func(item any) (string, []output.Field) {
+			details: func(m *Model, item any) (string, []output.Field) {
 				d := item.(omada.Device)
-				return d.Label(), output.DeviceFields(d)
+				fields := output.DeviceFields(d)
+				if fw, ok := m.sess.CachedFirmware(d.MAC); ok {
+					fields = append(fields, output.Field{Label: "Latest firmware", Value: output.LatestFirmware(fw)})
+					if fw.UpdateAvailable() && fw.ReleaseNotes != "" {
+						fields = append(fields, output.Field{Label: "Release notes", Value: fw.ReleaseNotes})
+					}
+				}
+				return d.Label(), fields
 			},
 			actions: []action{
 				{
@@ -158,7 +211,7 @@ func devicesTab() *tab {
 				},
 				{
 					key: "n", label: "rename",
-					prompt: func(item any) (string, string) {
+					prompt: func(_ target, item any) (string, string) {
 						d := item.(omada.Device)
 						return "New name for " + d.Label(), d.Name
 					},
@@ -167,7 +220,41 @@ func devicesTab() *tab {
 						return "Renamed " + d.Label() + " to " + name + ".", t.sess.RenameDevice(ctx, t.siteID, d, name)
 					},
 				},
+				{
+					// An update can take a device off the network, so it
+					// asks for more than a y: the device name, typed out.
+					key: "U", label: "update", help: "update the firmware of the selected device",
+					prompt: func(t target, item any) (string, string) {
+						d := item.(omada.Device)
+						what := "Update " + d.Label()
+						if fw, ok := t.sess.CachedFirmware(d.MAC); ok && fw.UpdateAvailable() {
+							what += " from " + fw.Current + " to " + fw.Latest
+						}
+						return what + "? It restarts. Type its name to confirm", ""
+					},
+					run: func(ctx context.Context, t target, item any, typed string) (string, error) {
+						d := item.(omada.Device)
+						if typed != d.Label() {
+							return "", fmt.Errorf("the name did not match %q; nothing was updated", d.Label())
+						}
+						fw, err := t.sess.UpgradeDevice(ctx, t.siteID, d)
+						if errors.Is(err, app.ErrUpToDate) {
+							return upperFirst(err.Error()) + ".", nil
+						}
+						if err != nil {
+							return "", err
+						}
+						return "Updating " + d.Label() + " to " + fw.Latest + ". It restarts when it is done; do not unplug it.", nil
+					},
+				},
 			},
+		},
+		enrich: func(ctx context.Context, s *app.Session, siteID string, items map[string]any) bool {
+			devs := make([]omada.Device, 0, len(items))
+			for _, item := range items {
+				devs = append(devs, item.(omada.Device))
+			}
+			return s.RefreshFirmware(ctx, siteID, devs)
 		},
 		load: func(ctx context.Context, s *app.Session, siteID string) ([]table.Row, map[string]any, error) {
 			devs, err := s.Devices(ctx, siteID)
@@ -190,9 +277,13 @@ func devicesTab() *tab {
 					cpu = table.Num(output.Percent(float64(d.CPU)), float64(d.CPU))
 					mem = table.Num(output.Percent(float64(d.Mem)), float64(d.Mem))
 				}
+				firmware := output.OrNone(d.Firmware)
+				if fw, ok := s.CachedFirmware(d.MAC); ok && fw.UpdateAvailable() {
+					firmware += " " + updateMark
+				}
 				rows[i] = table.Row{Key: d.MAC, Dim: !d.Online(), Cells: []table.Cell{
 					table.Text(symbol), table.Text(d.Label()), table.Text(output.OrNone(d.Type)), table.Text(d.StatusText()),
-					table.Text(output.OrNone(d.Model)), table.Text(output.OrNone(d.IP)), uptime, cpu, mem, table.Text(d.MAC),
+					table.Text(output.OrNone(d.Model)), table.Text(firmware), table.Text(output.OrNone(d.IP)), uptime, cpu, mem, table.Text(d.MAC),
 				}}
 				items[d.MAC] = d
 			}
@@ -204,6 +295,8 @@ func devicesTab() *tab {
 func clientsTab() *tab {
 	return &tab{
 		title: "Clients",
+		hint:  "connected",
+		alt:   blockedTab(),
 		list: list{
 			noun: "client",
 			table: table.New([]table.Column{
@@ -216,14 +309,14 @@ func clientsTab() *tab {
 				{Title: "UPTIME", Numeric: true},
 				{Title: "MAC"},
 			}, 1),
-			details: func(item any) (string, []output.Field) {
+			details: func(_ *Model, item any) (string, []output.Field) {
 				c := item.(omada.NetClient)
 				return c.Label(), output.ClientFields(c)
 			},
 			actions: []action{
 				{
 					key: "n", label: "rename",
-					prompt: func(item any) (string, string) {
+					prompt: func(_ target, item any) (string, string) {
 						c := item.(omada.NetClient)
 						return "New name for " + c.Label(), c.Name
 					},
@@ -240,7 +333,7 @@ func clientsTab() *tab {
 					},
 					run: func(ctx context.Context, t target, item any, _ string) (string, error) {
 						c := item.(omada.NetClient)
-						return "Blocked " + c.Label() + ". Unblock with: gomada client unblock " + c.MAC,
+						return "Blocked " + c.Label() + ". Press B to see the blocked clients.",
 							t.sess.BlockClient(ctx, t.siteID, c)
 					},
 				},
@@ -274,6 +367,164 @@ func clientsTab() *tab {
 					table.Text(c.MAC),
 				}}
 				items[c.MAC] = c
+			}
+			return rows, items, nil
+		},
+	}
+}
+
+// blockedTab is the second view of the Clients tab: the clients that are
+// barred from the network. They are not connected, so they are not among
+// the rows of the first view.
+func blockedTab() *tab {
+	return &tab{
+		title: "Clients · blocked",
+		hint:  "blocked",
+		list: list{
+			noun: "blocked client",
+			table: table.New([]table.Column{
+				{Title: "NAME"}, {Title: "MAC"}, {Title: "TYPE"}, {Title: "LAST SEEN"},
+			}, 1),
+			details: func(_ *Model, item any) (string, []output.Field) {
+				k := item.(omada.KnownClient)
+				return k.Label(), []output.Field{
+					{Label: "Name", Value: output.OrNone(k.Name)},
+					{Label: "MAC address", Value: k.MAC},
+					{Label: "Type", Value: wiredOrWireless(k.Wireless)},
+					{Label: "Last seen", Value: output.Timestamp(k.LastSeen())},
+					{Label: "State", Value: "blocked"},
+				}
+			},
+			actions: []action{{
+				key: "u", label: "unblock",
+				confirm: func(item any) string {
+					k := item.(omada.KnownClient)
+					return fmt.Sprintf("Unblock %s (%s)?", k.Label(), k.MAC)
+				},
+				run: func(ctx context.Context, t target, item any, _ string) (string, error) {
+					k := item.(omada.KnownClient)
+					return "Unblocked " + k.Label() + ".", t.sess.UnblockClient(ctx, t.siteID, k.MAC)
+				},
+			}},
+		},
+		load: func(ctx context.Context, s *app.Session, siteID string) ([]table.Row, map[string]any, error) {
+			blocked, err := s.BlockedClients(ctx, siteID)
+			if err != nil {
+				return nil, nil, err
+			}
+			rows := make([]table.Row, len(blocked))
+			items := make(map[string]any, len(blocked))
+			for i, k := range blocked {
+				rows[i] = table.Row{Key: k.MAC, Cells: []table.Cell{
+					table.Text(k.Label()), table.Text(k.MAC), table.Text(wiredOrWireless(k.Wireless)),
+					table.Text(output.Timestamp(k.LastSeen())),
+				}}
+				items[k.MAC] = k
+			}
+			return rows, items, nil
+		},
+	}
+}
+
+func wiredOrWireless(wireless bool) string {
+	if wireless {
+		return "wireless"
+	}
+	return "wired"
+}
+
+func wifiTab() *tab {
+	return &tab{
+		title: "Wi-Fi",
+		list: list{
+			noun: "Wi-Fi network",
+			table: table.New([]table.Column{
+				{Title: "NAME", MaxWidth: 32}, {Title: "SECURITY"}, {Title: "BAND"}, {Title: "GUEST"}, {Title: "HIDDEN"},
+			}, 1),
+			open: func(m *Model, item any) tea.Cmd { return m.openWifi(item.(omada.SSID)) },
+			actions: []action{{
+				key: "p", label: "password", help: "show the password of the selected network",
+				run: func(ctx context.Context, t target, item any, _ string) (string, error) {
+					ssid := item.(omada.SSID)
+					if ssid.Security != omada.SecurityPersonal {
+						return ssid.Name + " has no shared password (" + ssid.SecurityText() + ").", nil
+					}
+					password, err := t.sess.WifiPassword(ctx, t.siteID, ssid)
+					if err != nil {
+						return "", err
+					}
+					if password == "" {
+						return "The controller did not reveal the password of " + ssid.Name + ".", nil
+					}
+					return "Password of " + ssid.Name + ": " + password, nil
+				},
+			}},
+		},
+		load: func(ctx context.Context, s *app.Session, siteID string) ([]table.Row, map[string]any, error) {
+			ssids, err := s.SSIDs(ctx, siteID)
+			if err != nil {
+				return nil, nil, err
+			}
+			rows := make([]table.Row, len(ssids))
+			items := make(map[string]any, len(ssids))
+			for i, ssid := range ssids {
+				key := ssid.WLANID + "/" + ssid.ID
+				rows[i] = table.Row{Key: key, Cells: []table.Cell{
+					table.Text(ssid.Name), table.Text(ssid.SecurityText()), table.Text(output.OrNone(ssid.BandText())),
+					table.Text(output.YesNo(ssid.Guest)), table.Text(output.YesNo(ssid.Hidden())),
+				}}
+				items[key] = ssid
+			}
+			return rows, items, nil
+		},
+	}
+}
+
+func alertsTab() *tab {
+	return &tab{
+		title:      "Alerts",
+		background: true,
+		badge: func(t *tab) string {
+			unresolved := 0
+			for _, item := range t.items {
+				if !item.(omada.Alert).Resolved {
+					unresolved++
+				}
+			}
+			if unresolved == 0 {
+				return ""
+			}
+			return fmt.Sprintf(" (%d)", unresolved)
+		},
+		list: list{
+			noun: "alert",
+			table: table.New([]table.Column{
+				{Title: ""}, {Title: "TIME"}, {Title: "LEVEL"}, {Title: "MESSAGE", MaxWidth: 160},
+			}, 1),
+			details: func(_ *Model, item any) (string, []output.Field) {
+				return "Alert", output.AlertFields(item.(omada.Alert))
+			},
+		},
+		load: func(ctx context.Context, s *app.Session, siteID string) ([]table.Row, map[string]any, error) {
+			alerts, err := s.Alerts(ctx, siteID)
+			if err != nil {
+				return nil, nil, err
+			}
+			rows := make([]table.Row, len(alerts))
+			items := make(map[string]any, len(alerts))
+			for i, a := range alerts {
+				symbol := symbolOnline // unresolved: needs attention
+				if a.Resolved {
+					symbol = symbolOffline
+				}
+				// The same ID could come back from both of the lists the
+				// alerts are read from, so the state is part of the key.
+				key := fmt.Sprintf("%s/%t", a.ID, a.Resolved)
+				rows[i] = table.Row{Key: key, Dim: a.Resolved, Cells: []table.Cell{
+					table.Text(symbol), table.Num(output.Timestamp(a.Time()), float64(a.Millis)),
+					table.Text(output.OrNone(a.Level)), table.Text(a.Content),
+				}}
+				items[key] = a
 			}
 			return rows, items, nil
 		},

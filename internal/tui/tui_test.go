@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -17,6 +18,13 @@ import (
 	"github.com/mareklanduch/gomada/internal/omada/omadatest"
 	"github.com/mareklanduch/gomada/internal/secret"
 )
+
+// TestMain pins the time zone, so times on expected screens do not depend
+// on where the tests run.
+func TestMain(m *testing.M) {
+	time.Local = time.UTC
+	os.Exit(m.Run())
+}
 
 var update = flag.Bool("update", false, "rewrite the golden files with the current screens")
 
@@ -53,7 +61,7 @@ func newHarness(t *testing.T, hosts ...string) *harness {
 
 func (h *harness) newApp() *app.App {
 	h.t.Helper()
-	a, err := app.New(app.Options{ConfigPath: h.path})
+	a, err := app.New(app.Options{ConfigPath: h.path, Now: func() time.Time { return omadatest.Epoch }})
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -254,9 +262,11 @@ func TestClientsTab(t *testing.T) {
 	h := newHarness(t, "home").oneSite().start(100, 12, Options{})
 	h.press("tab")
 	h.golden("clients-100x12")
-	h.press("tab")
-	h.wantScreen("[Devices]", "Core router")
 	h.press("shift+tab")
+	h.wantScreen("[Devices]", "Core router")
+	h.press("shift+tab") // wraps around to the last tab
+	h.wantScreen("[Alerts (2)]")
+	h.press("tab", "tab")
 	h.wantScreen("[Clients]", "Laptop")
 }
 
@@ -561,15 +571,7 @@ func TestRenameDevice(t *testing.T) {
 func TestClientActions(t *testing.T) {
 	h := newHarness(t, "home").oneSite().start(100, 12, Options{})
 	h.press("tab")
-	h.wantFooter("enter details · n rename · b block · c reconnect · ? help")
-
-	h.press("b")
-	h.wantFooter("Block Laptop (CC-00-00-00-00-01)? y/N")
-	h.press("y")
-	h.wantFooter("Blocked Laptop. Unblock with: gomada client unblock CC-00-00-00-00-01")
-	if !h.fake.Blocked("CC-00-00-00-00-01") {
-		t.Error("not blocked on the controller")
-	}
+	h.wantFooter("enter details · n rename · b block · c reconnect · ? help · / filter · B blocked")
 
 	h.press("c")
 	h.wantFooter("Asked Laptop to reconnect.")
@@ -581,6 +583,260 @@ func TestClientActions(t *testing.T) {
 	if got := h.fake.ClientName("site-1", "CC-00-00-00-00-03"); got != "Office printer" {
 		t.Errorf("name on the controller = %q", got)
 	}
+}
+
+func TestBlockAndUnblock(t *testing.T) {
+	h := newHarness(t, "home").oneSite().start(100, 12, Options{})
+	const mac = "CC-00-00-00-00-01"
+	h.press("2", "B")
+	h.wantScreen("[Clients · blocked]", "No blocked clients here.")
+	h.wantFooter("B connected")
+	h.press("u") // nothing to unblock; must not panic
+	h.wantFooter("Select a blocked client first.")
+	h.press("B")
+	h.wantScreen("[Clients]", "Laptop")
+
+	h.press("b")
+	h.wantFooter("Block Laptop (" + mac + ")? y/N")
+	h.press("y")
+	h.wantFooter("Blocked Laptop. Press B to see the blocked clients.")
+	if !h.fake.Blocked(mac) {
+		t.Fatal("not blocked on the controller")
+	}
+	h.wantNotOnScreen("Laptop  ") // a blocked client is cut off and leaves the list
+	h.wantScreen("1/2")
+
+	h.press("B")
+	h.golden("blocked-100x12")
+	h.press("enter")
+	h.wantScreen("MAC address", mac, "blocked")
+	h.press("esc", "u")
+	h.wantFooter("Unblock Laptop (" + mac + ")? y/N")
+	h.press("n")
+	if !h.fake.Blocked(mac) {
+		t.Fatal("unblocked without confirmation")
+	}
+	h.press("u", "y")
+	h.wantFooter("Unblocked Laptop.")
+	h.wantScreen("No blocked clients here.")
+	if h.fake.Blocked(mac) {
+		t.Fatal("still blocked on the controller")
+	}
+
+	h.press("B")
+	h.wantScreen("[Clients]", "Laptop")
+
+	// Leaving and reopening the site starts on the connected clients again.
+	h.press("B", "S", "enter", "2")
+	h.wantScreen("[Clients]")
+}
+
+func TestWifiTab(t *testing.T) {
+	h := newHarness(t, "home").oneSite().start(100, 12, Options{})
+	h.press("3")
+	h.golden("wifi-100x12")
+
+	h.press("j", "p") // Home-5G
+	h.wantFooter("Password of Home-5G: correct horse battery")
+	h.press("k") // the next key press takes the password off the screen
+	h.wantNotOnScreen("correct horse")
+	h.press("p") // Guests is open
+	h.wantFooter("Guests has no shared password (open).")
+	h.press("G", "p")
+	h.wantFooter("Staff has no shared password (WPA-Enterprise).")
+}
+
+func TestWifiQRCode(t *testing.T) {
+	h := newHarness(t, "home").oneSite().start(60, 28, Options{})
+	h.press("3", "j", "enter") // Home-5G
+	h.golden("wifi-qr-60x28")
+	h.wantFooter("p password · any other key back")
+	h.wantNotOnScreen("correct horse")
+
+	h.press("p")
+	h.wantScreen("Password", "correct horse battery")
+	h.press("p")
+	h.wantNotOnScreen("correct horse")
+	h.wantScreen("hidden; press p to show")
+	h.press("esc")
+	h.wantScreen("[Wi-Fi]", "Guests")
+	if h.m.wifiPassword != "" || h.m.wifiCode != nil {
+		t.Error("the password must not be kept after the details are closed")
+	}
+
+	// An open network has a QR code too; one with a login per person has none.
+	h.press("g", "enter")
+	h.wantScreen("▀", "Guests")
+	h.wantNotOnScreen("Password")
+	h.press("esc", "G", "enter")
+	h.wantScreen("No QR code for this network", "login per person")
+	h.wantNotOnScreen("▀")
+}
+
+func TestWifiQRCodeSizes(t *testing.T) {
+	half := "▀"
+	tests := []struct {
+		name          string
+		width, height int
+		want, notWant []string
+	}{
+		{"tall: half blocks", 60, 28, []string{half}, []string{"too small"}},
+		{"medium: sextants", 60, 15, []string{"\U0001FB00"[:0] + "█"}, []string{half, "too small"}},
+		{"short: no room", 60, 10, []string{"too small for the QR code", "Press p"}, []string{"█"}},
+		{"cardputer size", 34, 8, []string{"too small"}, []string{"█"}},
+	}
+	for _, tt := range tests {
+		h := newHarness(t, "home").oneSite().start(tt.width, tt.height, Options{})
+		h.press("3", "j", "enter")
+		screen := h.screen()
+		for _, w := range tt.want {
+			if !strings.Contains(screen, w) {
+				t.Errorf("%s: the screen does not show %q:\n%s", tt.name, w, screen)
+			}
+		}
+		for _, w := range tt.notWant {
+			if strings.Contains(screen, w) {
+				t.Errorf("%s: the screen shows %q:\n%s", tt.name, w, screen)
+			}
+		}
+		// Whatever the size, the password is one key away, without scrolling.
+		h.press("p")
+		h.wantScreen("correct horse")
+		h.press("p")
+		h.wantNotOnScreen("correct horse")
+	}
+}
+
+func TestWifiPasswordCannotBeRead(t *testing.T) {
+	h := newHarness(t, "home").oneSite().start(80, 20, Options{})
+	h.press("3", "j")
+	h.fake.Close()
+	h.press("enter")
+	h.wantScreen("The password could not be read")
+	h.press("esc", "p")
+	h.wantFooter("Error:")
+}
+
+func TestStaleWifiAnswerIsIgnored(t *testing.T) {
+	h := newHarness(t, "home").oneSite().start(80, 20, Options{})
+	h.press("3")
+	h.send(wifiMsg{ssidID: "ssid-1", password: "leak"}) // no details open
+	h.wantNotOnScreen("leak")
+	h.press("enter")                                    // Guests
+	h.send(wifiMsg{ssidID: "ssid-1", password: "leak"}) // the answer for another network
+	h.press("p")
+	h.wantNotOnScreen("leak")
+}
+
+func TestAlertsTab(t *testing.T) {
+	h := newHarness(t, "home").oneSite().start(100, 12, Options{})
+	h.wantScreen("Alerts (2)") // the count shows from any tab
+	h.press("4")
+	h.golden("alerts-100x12")
+	h.press("j", "enter")
+	h.golden("alert-details-100x12")
+	h.press("esc", "/").typeText("garage").press("enter")
+	h.wantScreen("1/1", "AP garage")
+
+	h.fake.SetAlerts("site-1")
+	h.press("esc", "R")
+	h.wantScreen("[Alerts]", "No alerts here.")
+	h.wantNotOnScreen("(2)")
+}
+
+func TestAlertCountFollowsTheControllerWhileOnAnotherTab(t *testing.T) {
+	h := newHarness(t, "home").oneSite().start(100, 12, Options{})
+	h.wantScreen("Alerts (2)")
+	h.fake.SetAlerts("site-1", omadatest.Record{"id": "x", "level": "Error", "content": "new", "resolved": false, "time": omadatest.Epoch.Add(-time.Minute).UnixMilli()})
+	h.send(tickMsg{})
+	h.wantScreen("[Devices]", "Alerts (1)")
+}
+
+func TestFirmware(t *testing.T) {
+	h := newHarness(t, "home").oneSite().start(120, 20, Options{})
+	const ap = "AA-00-00-00-00-03"
+	h.golden("devices-firmware-120x20")
+
+	h.press("G", "enter") // AP office
+	h.wantScreen("Latest firmware", "1.1.2 (update available)", "Release notes", "Improved roaming")
+	h.press("esc", "g", "enter") // Core router
+	h.wantScreen("Latest firmware", "up to date")
+	h.wantNotOnScreen("Release notes")
+	h.press("esc")
+
+	h.press("U") // Core router has nothing to install
+	h.wantFooter("Update Core router? It restarts. Type its name to confirm: █")
+	h.typeText("Core router").press("enter")
+	h.wantFooter("Core router is already up to date (firmware 1.2.3).")
+
+	h.press("G", "U")
+	h.wantFooter("Update AP office from 1.0.14 to 1.1.2? It restarts. Type its name to confirm: █")
+	h.typeText("ap office").press("enter") // not exactly the name
+	h.wantFooter(`Error: the name did not match "AP office"; nothing was updated`)
+	h.press("U", "esc")
+	h.wantFooter("Canceled.")
+	h.press("U", "enter")
+	h.wantFooter("Canceled: nothing was entered.")
+	if h.fake.Called("POST /sites/site-1/devices/" + ap + "/start-online-upgrade") {
+		t.Fatal("an update started without the name being typed")
+	}
+
+	h.press("U").typeText("AP office").press("enter")
+	h.wantFooter("Updating AP office to 1.1.2. It restarts when it is done; do not unplug it.")
+	if !h.fake.Called("POST /sites/site-1/devices/" + ap + "/start-online-upgrade") {
+		t.Fatalf("calls = %v", h.fake.Calls())
+	}
+	h.wantScreen("updating")
+}
+
+func TestFirmwareOfAnOfflineDevice(t *testing.T) {
+	h := newHarness(t, "home").oneSite().start(120, 14, Options{})
+	h.press("j", "j", "U").typeText("AP garage").press("enter")
+	h.wantFooter("Error: AP garage is offline; only a connected device can be updated")
+}
+
+func TestFirmwareIsAskedForOncePerDevice(t *testing.T) {
+	h := newHarness(t, "home").oneSite().start(120, 14, Options{})
+	count := func() int {
+		n := 0
+		for _, c := range h.fake.Calls() {
+			if strings.HasSuffix(c, "/latest-firmware-info") {
+				n++
+			}
+		}
+		return n
+	}
+	if got := count(); got != 3 {
+		t.Fatalf("%d firmware requests after opening the site, want 3 (the connected devices)", got)
+	}
+	h.press("R", "R")
+	h.send(tickMsg{})
+	if got := count(); got != 3 {
+		t.Errorf("%d firmware requests after reloading, want still 3", got)
+	}
+}
+
+func TestTabBarOnANarrowScreen(t *testing.T) {
+	h := newHarness(t, "home").oneSite().start(34, 8, Options{})
+	header := func() string { return strings.TrimRight(h.lines()[0], " ") }
+	want := []string{
+		"home › Default  [Devices] ›    1/4",
+		"home › Default  ‹ [Clients] ›  1/3",
+		"home › Default  ‹ [Wi-Fi] ›    1/4",
+		"home › Default  ‹ [Alerts (2)]",
+	}
+	for i, w := range want {
+		if got := header(); got != w {
+			t.Errorf("tab %d: header = %q, want %q", i+1, got, w)
+		}
+		h.press("tab")
+	}
+	h.press("2", "B")
+	if got := header(); !strings.Contains(got, "[Clients · blocked]") {
+		t.Errorf("header = %q, want the current tab kept whole and the host and site shortened", got)
+	}
+	h.press("9") // there is no ninth tab
+	h.wantScreen("blocked")
 }
 
 func TestFilterAndSort(t *testing.T) {
@@ -700,8 +956,10 @@ func TestPeriodicReload(t *testing.T) {
 
 	before := count()
 	h.send(tickMsg{})
-	if count() != before+1 {
-		t.Errorf("a tick on the main screen made %d requests, want 1", count()-before)
+	// One request for the tab on screen, two for the alerts, whose count
+	// is kept current in the tab bar.
+	if count() != before+3 {
+		t.Errorf("a tick on the main screen made %d requests, want 3", count()-before)
 	}
 	h.fake.SetDevices("site-1", omadatest.Record{"mac": "01", "name": "New device", "type": "ap", "status": 1})
 	h.send(tickMsg{})
@@ -762,14 +1020,21 @@ func TestScreenAlwaysFitsTheTerminal(t *testing.T) {
 	}{
 		{"devices", nil},
 		{"scrolled right", []string{"l", "l"}},
-		{"clients", []string{"tab"}},
+		{"clients", []string{"2"}},
 		{"details", []string{"enter"}},
 		{"help", []string{"esc", "?"}},
-		{"confirm", []string{"esc", "tab", "r"}},
+		{"confirm", []string{"esc", "1", "r"}},
 		{"prompt", []string{"esc", "n"}},
 		{"long input", []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"}},
 		{"filter", []string{"esc", "/", "a", "p"}},
-		{"sites", []string{"esc", "esc", "S"}},
+		{"blocked", []string{"esc", "esc", "2", "B"}},
+		{"wifi", []string{"3"}},
+		{"wifi qr", []string{"j", "enter"}},
+		{"wifi password", []string{"p"}},
+		{"alerts", []string{"esc", "4"}},
+		{"alert details", []string{"j", "enter"}},
+		{"update prompt", []string{"esc", "1", "G", "U", "x", "y"}},
+		{"sites", []string{"esc", "S"}},
 		{"hosts", []string{"H"}},
 		{"wizard", []string{"a"}},
 		{"wizard error", []string{"!", "enter"}},

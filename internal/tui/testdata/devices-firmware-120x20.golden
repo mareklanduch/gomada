@@ -1,0 +1,20 @@
+home › Default  [Devices]  Clients   Wi-Fi   Alerts (2)                                                              1/4
+     NAME         TYPE     STATUS     MODEL      FIRMWARE   IP            UPTIME    CPU   MEM  MAC
+▸ ●  Core router  gateway  connected  ER707-M2   1.2.3      192.168.0.1   41d 6h     8%   31%  AA-00-00-00-00-01
+  ●  Rack switch  switch   connected  SG3428XMP  3.0.1      192.168.0.2   41d 6h    12%   44%  AA-00-00-00-00-02
+  ○  AP garage    ap       offline    EAP225     5.1.0      192.168.0.23  -           -     -  AA-00-00-00-00-04
+  ●  AP office    ap       connected  EAP670     1.0.14 ↑   192.168.0.21  12d 2h     5%   52%  AA-00-00-00-00-03
+
+
+
+
+
+
+
+
+
+
+
+
+
+enter details · r reboot · n rename · U update · ? help · / filter · tab clients · S sites · H hosts · q quit
