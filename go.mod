@@ -1,6 +1,6 @@
 module github.com/mareklanduch/gomada
 
-go 1.26.0
+go 1.26.11
 
 require (
 	charm.land/bubbletea/v2 v2.1.2
