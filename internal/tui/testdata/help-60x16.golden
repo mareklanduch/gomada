@@ -1,0 +1,16 @@
+home › Default  [Devices]  Clients                       1/4
+Keys
+
+↑ ↓  k j  move
+← →  h l  scroll the table sideways
+g G       first and last row
+enter     open or show details
+r         reboot the selected device
+n         rename the selected device
+/         filter by text in any column
+o         sort by the next column
+R         reload
+tab       next tab
+S         sites of this host
+H         hosts
+any key back · ↑↓ scroll

@@ -1,0 +1,5 @@
+STATUS     NAME         TYPE     MODEL      IP            MAC                UPTIME  CPU  MEM
+connected  Core router  gateway  ER707-M2   192.168.0.1   AA-00-00-00-00-01  41d 6h  8%   31%
+connected  Rack switch  switch   SG3428XMP  192.168.0.2   AA-00-00-00-00-02  41d 6h  12%  44%
+offline    AP garage    ap       EAP225     192.168.0.23  AA-00-00-00-00-04  -       -    -
+connected  AP office    ap       EAP670     192.168.0.21  AA-00-00-00-00-03  12d 2h  5%   52%

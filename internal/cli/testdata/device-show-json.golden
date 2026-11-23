@@ -1,0 +1,14 @@
+{
+  "mac": "AA-00-00-00-00-03",
+  "name": "AP office",
+  "type": "ap",
+  "model": "EAP670",
+  "ip": "192.168.0.21",
+  "status": "connected",
+  "online": true,
+  "uptime": "1044000",
+  "cpu_percent": 5,
+  "mem_percent": 52,
+  "firmware": "1.0.14",
+  "serial": "SN003"
+}

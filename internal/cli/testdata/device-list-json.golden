@@ -1,0 +1,58 @@
+[
+  {
+    "mac": "AA-00-00-00-00-01",
+    "name": "Core router",
+    "type": "gateway",
+    "model": "ER707-M2",
+    "ip": "192.168.0.1",
+    "status": "connected",
+    "online": true,
+    "uptime": "41day(s) 6h 2m 1s",
+    "cpu_percent": 8,
+    "mem_percent": 31,
+    "firmware": "1.2.3",
+    "serial": "SN001"
+  },
+  {
+    "mac": "AA-00-00-00-00-02",
+    "name": "Rack switch",
+    "type": "switch",
+    "model": "SG3428XMP",
+    "ip": "192.168.0.2",
+    "status": "connected",
+    "online": true,
+    "uptime": "41day(s) 6h 1m 0s",
+    "cpu_percent": 12,
+    "mem_percent": 44,
+    "firmware": "3.0.1",
+    "serial": "SN002"
+  },
+  {
+    "mac": "AA-00-00-00-00-04",
+    "name": "AP garage",
+    "type": "ap",
+    "model": "EAP225",
+    "ip": "192.168.0.23",
+    "status": "offline",
+    "online": false,
+    "uptime": "",
+    "cpu_percent": 0,
+    "mem_percent": 0,
+    "firmware": "5.1.0",
+    "serial": "SN004"
+  },
+  {
+    "mac": "AA-00-00-00-00-03",
+    "name": "AP office",
+    "type": "ap",
+    "model": "EAP670",
+    "ip": "192.168.0.21",
+    "status": "connected",
+    "online": true,
+    "uptime": "1044000",
+    "cpu_percent": 5,
+    "mem_percent": 52,
+    "firmware": "1.0.14",
+    "serial": "SN003"
+  }
+]

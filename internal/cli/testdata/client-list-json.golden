@@ -1,0 +1,50 @@
+[
+  {
+    "mac": "CC-00-00-00-00-01",
+    "name": "Laptop",
+    "host_name": "laptop",
+    "ip": "192.168.0.104",
+    "vendor": "Apple",
+    "wireless": true,
+    "ssid": "Home-5G",
+    "network": "",
+    "connected_to": "AP office · Home-5G",
+    "port": 0,
+    "signal_dbm": -52,
+    "uptime_seconds": 11520,
+    "down_bytes": 1288490188,
+    "up_bytes": 325058560
+  },
+  {
+    "mac": "CC-00-00-00-00-02",
+    "name": "NAS",
+    "host_name": "",
+    "ip": "192.168.0.10",
+    "vendor": "",
+    "wireless": false,
+    "ssid": "",
+    "network": "LAN",
+    "connected_to": "Rack switch · port 4",
+    "port": 4,
+    "signal_dbm": 0,
+    "uptime_seconds": 3564000,
+    "down_bytes": 94489280512,
+    "up_bytes": 12884901888
+  },
+  {
+    "mac": "CC-00-00-00-00-03",
+    "name": "",
+    "host_name": "printer",
+    "ip": "192.168.0.57",
+    "vendor": "",
+    "wireless": true,
+    "ssid": "IoT",
+    "network": "",
+    "connected_to": "AP office · IoT",
+    "port": 0,
+    "signal_dbm": -67,
+    "uptime_seconds": 522000,
+    "down_bytes": 4194304,
+    "up_bytes": 1048576
+  }
+]

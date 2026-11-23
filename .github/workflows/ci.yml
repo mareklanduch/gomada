@@ -1,0 +1,60 @@
+name: CI
+
+# Runs on every pull request, and is reused by the release workflow so a
+# release is only ever built from a commit that passed the same checks.
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # A newer push to a pull request replaces the older run. Runs for main are
+  # never canceled, because a release depends on them.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Lint, test, cross-compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      - name: go.mod and go.sum are tidy
+        run: go mod tidy -diff
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+
+      - name: Test with race detector and coverage floor
+        run: bash scripts/check-coverage.sh
+
+      - name: Test the release version script
+        run: bash scripts/next-version_test.sh
+
+      # Tests run on Linux only. Building and vetting for the other systems
+      # still catches code that would not compile there.
+      - name: Cross-compile for Windows and macOS
+        run: |
+          for os in windows darwin; do
+            GOOS=$os go build ./...
+            GOOS=$os go vet ./...
+          done
+
+      - name: Release configuration is valid
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: "~> v2"
+          args: check
+
+      - name: Known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
