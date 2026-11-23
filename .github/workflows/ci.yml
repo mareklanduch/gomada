@@ -2,9 +2,11 @@ name: CI
 
 # Runs on every pull request, and is reused by the release workflow so a
 # release is only ever built from a commit that passed the same checks.
+# It can also be started by hand for any branch.
 on:
   pull_request:
   workflow_call:
+  workflow_dispatch: # run by hand on any branch
 
 permissions:
   contents: read
