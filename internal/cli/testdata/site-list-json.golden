@@ -1,0 +1,12 @@
+[
+  {
+    "id": "site-1",
+    "name": "Default",
+    "current": false
+  },
+  {
+    "id": "site-2",
+    "name": "Workshop",
+    "current": true
+  }
+]

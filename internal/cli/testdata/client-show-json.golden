@@ -1,0 +1,16 @@
+{
+  "mac": "CC-00-00-00-00-02",
+  "name": "NAS",
+  "host_name": "",
+  "ip": "192.168.0.10",
+  "vendor": "",
+  "wireless": false,
+  "ssid": "",
+  "network": "LAN",
+  "connected_to": "Rack switch · port 4",
+  "port": 4,
+  "signal_dbm": 0,
+  "uptime_seconds": 3564000,
+  "down_bytes": 94489280512,
+  "up_bytes": 12884901888
+}
