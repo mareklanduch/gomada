@@ -18,6 +18,9 @@ type Session struct {
 	client *omada.Client
 
 	secretOnce func() (string, error)
+
+	fwMu     sync.Mutex
+	firmware map[string]firmwareEntry // by device MAC
 }
 
 // Connect prepares a session with a host. An empty name means the current
@@ -72,7 +75,9 @@ func (a *App) Connect(name string) (*Session, error) {
 		Secret:       func(context.Context) (string, error) { return s.secretOnce() },
 		HTTPClient:   a.httpClient(omada.TLSOptions{Pin: h.TLSPin, Insecure: h.InsecureSkipTLSVerify}),
 		Cache:        a.tokenCache(name, h),
+		Now:          a.now,
 	})
+	s.firmware = map[string]firmwareEntry{}
 	return s, nil
 }
 
