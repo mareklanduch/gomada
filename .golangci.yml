@@ -1,0 +1,50 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - revive
+    - unconvert
+    - unparam
+    - usestdlibvars
+  settings:
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: unused-parameter
+    gosec:
+      excludes:
+        - G304 # reading files whose path comes from the user's own config
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters: [gosec, noctx, unparam, errcheck]
+      # G101 flags any constant whose name contains "secret" or "pass". These
+      # two files hold the name of an environment variable and the made-up
+      # credentials of the fake controller used in tests, not real secrets.
+      - path: internal/(secret/secret|omada/omadatest/fake)\.go
+        linters: [gosec]
+        text: G101
+      # Messages to the person at the terminal; a failed write has nowhere to be reported.
+      - linters: [errcheck]
+        source: 'fmt\.Fprint(f|ln)?\(c\.(Out|Err)'
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/mareklanduch/gomada

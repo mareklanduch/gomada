@@ -1,0 +1,8 @@
+# Build output
+/gomada
+/gomada.exe
+/dist/
+
+# Test output
+*.out
+*.test
