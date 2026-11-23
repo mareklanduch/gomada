@@ -17,13 +17,17 @@ enter details · r reboot · n rename · ? help · / filter · tab clients · S 
 
 - See the devices and connected clients of a site.
 - Reboot and rename devices. Rename, block, unblock, and reconnect clients.
+- See which devices have a firmware update waiting, and install it.
+- List Wi-Fi networks, look up a password, and show a QR code to join.
+- Read the alerts the controller raised.
 - Keep several controllers, each with several sites.
 - The client secret lives in the system keychain, never in a config file.
 - Works on small screens: tables scroll sideways.
 
 > **Status.** gomada is new. It is tested against a fake controller built from
-> the Open API reference, and has not yet been confirmed against every
-> controller version. Please report anything that behaves differently on yours.
+> the Open API reference and has been used against a real controller, but not
+> against every controller version. Please report anything that behaves
+> differently on yours.
 
 ## Install
 
@@ -78,17 +82,28 @@ Run `gomada` with no arguments.
 | `↑` `↓` or `k` `j` | Move |
 | `←` `→` or `h` `l` | Scroll the table sideways; the name stays in place |
 | `enter` | Open a host or site; show the details of a device or client |
-| `tab` | Switch between Devices and Clients |
+| `tab` or `1` to `4` | Switch between Devices, Clients, Wi-Fi, and Alerts |
 | `/` | Filter by text in any column |
 | `o` | Sort by the next column |
-| `r` `n` | Reboot or rename the selected device |
+| `r` `n` `U` | Reboot, rename, or update the firmware of the selected device |
 | `n` `b` `c` | Rename, block, or reconnect the selected client |
+| `B` `u` | Show the blocked clients; unblock the selected one |
+| `p` | Show the password of the selected Wi-Fi network |
 | `R` | Reload; the open tab also reloads every 10 seconds |
 | `S` `H` | Sites of this host; all hosts (`a` adds one, `x` removes one) |
 | `?` | All keys |
 | `q` | Quit |
 
-Rebooting, blocking, and removing ask for confirmation first.
+Rebooting, blocking, unblocking, and removing ask for confirmation first. A
+firmware update asks you to type the device name.
+
+- **Devices** marks a device that has a firmware update waiting with `↑`.
+  Its details show the new version and the release notes.
+- **Wi-Fi**: `enter` on a network shows a QR code that phones can scan to
+  join. It needs a terminal about 15 rows high; in a smaller one, `p` shows
+  the password instead.
+- **Alerts** lists the last 30 days, newest first, unresolved ones marked
+  `●`. The tab shows how many are unresolved. `enter` shows one in full.
 
 ## Commands
 
@@ -98,8 +113,10 @@ Everything the interactive view does is also a command.
 gomada                          open the interactive view
 gomada host   add | list | use | remove | test
 gomada site   list | use
-gomada device list | show | reboot | rename
+gomada device list | show | reboot | rename | firmware | upgrade
 gomada client list | show | rename | block | unblock | reconnect
+gomada wifi   list | show | qr
+gomada alert  list | show
 gomada version
 gomada completion bash | zsh | fish | powershell
 ```
@@ -109,15 +126,27 @@ gomada device list --type ap
 gomada device reboot "AP office" --yes
 gomada client list --wireless -o json | jq '.[].name'
 gomada --host office --site Workshop client block aa:bb:cc:dd:ee:ff --yes
+gomada client list --blocked
+gomada device list --updates
+gomada device upgrade "AP office"
+gomada wifi show Home-5G --password
+gomada wifi qr Guests
+gomada alert list --unresolved -o json
 ```
 
 - Devices and clients are named by MAC address (in any notation) or by name.
   A name that matches several is an error that lists them.
 - `-o json` prints stable JSON for scripts. Results go to standard output,
   messages and errors to standard error.
-- `reboot`, `block`, and `host remove` ask for confirmation. Outside a
-  terminal they refuse unless you pass `--yes`.
-- A blocked client is offline, so `client unblock` takes its MAC address.
+- `reboot`, `upgrade`, `block`, and `host remove` ask for confirmation.
+  Outside a terminal they refuse unless you pass `--yes`.
+- A blocked client is offline, so `client unblock` takes its MAC address;
+  `client list --blocked` shows them.
+- `device upgrade` installs the newest firmware the controller found. The
+  device restarts. The command waits for it and reports the result;
+  `--no-wait` returns at once.
+- A Wi-Fi password is printed only with `wifi show --password`. The QR code
+  of `wifi qr` contains the password.
 
 Global flags: `--host`, `--site`, `--output`, `--timeout`, `--yes`,
 `--verbose`, `--no-color`, `--no-token-cache`, `--config`.
@@ -180,8 +209,15 @@ off with `--no-token-cache`, or with `no_token_cache: true` in the config.
 - An Omada controller that offers the Open API (software or hardware
   controller with **Settings > Platform Integration > Open API**).
 - Cloud-based controllers are not supported yet.
-- In the interactive view a blocked client disappears from the list, because
-  only connected clients are listed. Unblock it with `gomada client unblock`.
+- The Open API application needs a role that allows what you use: reading
+  Wi-Fi passwords, the client history (for the blocked list), logs (for
+  alerts), and device management (for reboot and firmware updates).
+- Firmware updates are one device at a time, with firmware the controller
+  downloads itself. Uploading a firmware file stays in the web interface.
+- Alerts are read-only: resolving and deleting them stays in the web
+  interface.
+- Wi-Fi networks with a login per person (WPA-Enterprise, PPSK) have no
+  shared password and so no QR code.
 
 ## Development
 

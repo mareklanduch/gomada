@@ -12,3 +12,4 @@ has the same three parts: the context, the decision, and what follows from it.
 | [0005](0005-token-cache.md) | Access tokens are cached between runs |
 | [0006](0006-simple-tui.md) | The interface stays plain; tables scroll sideways |
 | [0007](0007-release-on-merge.md) | Every merge to main can release |
+| [0008](0008-tabs-not-settings.md) | Wi-Fi and alerts are tabs; firmware belongs to the device |
