@@ -14,6 +14,7 @@ import (
 	"github.com/mareklanduch/gomada/internal/app"
 	"github.com/mareklanduch/gomada/internal/omada"
 	"github.com/mareklanduch/gomada/internal/output"
+	"github.com/mareklanduch/gomada/internal/qr"
 	"github.com/mareklanduch/gomada/internal/secret"
 	"github.com/mareklanduch/gomada/internal/tui/table"
 )
@@ -58,6 +59,16 @@ type (
 		rows   []table.Row
 		items  map[string]any
 		err    error
+		// enriched marks rows reloaded after the tab's slow extra data
+		// arrived, so that the data is not fetched in a loop.
+		enriched bool
+	}
+	// wifiMsg carries the password of the Wi-Fi network whose details are
+	// open, for its QR code.
+	wifiMsg struct {
+		ssidID   string
+		password string
+		err      error
 	}
 	// actionMsg ends an action on a row.
 	actionMsg struct {
@@ -108,6 +119,14 @@ type Model struct {
 	detail      []output.Field
 	detailTop   int
 
+	// The Wi-Fi network whose details are open, and what is known of it.
+	wifi         *omada.SSID
+	wifiPassword string
+	wifiLoaded   bool
+	wifiCode     *qr.Code // nil while loading and when there is no QR code
+	wifiNote     string   // shown in place of the QR code
+	showPassword bool
+
 	wiz wizard
 }
 
@@ -120,7 +139,7 @@ func New(ctx context.Context, a *app.App, opts Options, refresh time.Duration) *
 		ctx: ctx, app: a, refresh: refresh, pass: pass,
 		wantHost: opts.Host, wantSite: opts.Site,
 		hosts: hostsList(), sites: sitesList(),
-		tabs: []*tab{devicesTab(), clientsTab()},
+		tabs: []*tab{devicesTab(), clientsTab(), wifiTab(), alertsTab()},
 	}
 }
 
@@ -168,10 +187,14 @@ func (m *Model) current() *list {
 	case screenSites:
 		return &m.sites
 	case screenMain:
-		return &m.tabs[m.tab].list
+		return &m.activeTab().list
 	}
 	return nil
 }
+
+// activeTab returns the tab on screen: the open tab, or its other view when
+// that is switched on.
+func (m *Model) activeTab() *tab { return m.tabs[m.tab].active() }
 
 // Update handles one message.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -190,16 +213,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case connectedMsg:
 		return m, m.connected(msg)
 	case rowsMsg:
-		m.loadedRows(msg)
+		return m, m.loadedRows(msg)
+	case wifiMsg:
+		m.wifiLoadedMsg(msg)
 		return m, nil
 	case actionMsg:
 		return m, m.actionDone(msg)
 	case tickMsg:
-		var reload tea.Cmd
-		if m.screen == screenMain && m.overlay == overlayNone && !m.tabs[m.tab].loading {
-			reload = m.loadTab()
+		cmds := []tea.Cmd{m.tick()}
+		if m.screen == screenMain && m.overlay == overlayNone {
+			if !m.activeTab().loading {
+				cmds = append(cmds, m.loadTab())
+			}
+			cmds = append(cmds, m.loadBackgroundTabs())
 		}
-		return m, tea.Batch(reload, m.tick())
+		return m, tea.Batch(cmds...)
 	case certMsg:
 		m.wizCertChecked(msg)
 		return m, nil
@@ -244,8 +272,24 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 			m.detailTop--
 		case "down", "j":
 			m.detailTop++
+		case "p":
+			if m.overlay != overlayDetails || m.wifi == nil {
+				m.overlay = overlayNone
+				break
+			}
+			m.showPassword = !m.showPassword
+			m.detail = wifiFields(*m.wifi, m.wifiLoaded, m.wifiPassword, m.showPassword)
+			// The password is the last line, below the QR code: bring it
+			// into view when it is shown, and the code back when it is not.
+			m.detailTop = 0
+			if m.showPassword {
+				m.detailTop = len(m.detail) + 1000 // clamped to the end when drawn
+			}
 		default:
 			m.overlay = overlayNone
+		}
+		if m.overlay == overlayNone {
+			m.wifi, m.wifiPassword, m.wifiCode = nil, "", nil // do not keep a password around
 		}
 		return nil
 	case overlayConfirm:
@@ -383,6 +427,16 @@ func (m *Model) listKey(key string) tea.Cmd {
 			m.tab = (m.tab + step) % len(m.tabs)
 			return m.loadTab()
 		}
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		if n := int(key[0] - '1'); m.screen == screenMain && n < len(m.tabs) {
+			m.tab = n
+			return m.loadTab()
+		}
+	case "B":
+		if t := m.tabs[m.tab]; m.screen == screenMain && t.alt != nil {
+			t.showAlt = !t.showAlt
+			return m.loadTab()
+		}
 	case "R":
 		return m.reload()
 	case "enter":
@@ -435,9 +489,12 @@ func (m *Model) open() tea.Cmd {
 	case omada.Site:
 		return m.openSite(item)
 	}
-	if l.details != nil {
-		m.detailTitle, m.detail = l.details(item)
-		m.detailTop = 0
+	m.detailTop = 0
+	switch {
+	case l.open != nil:
+		return l.open(m, item)
+	case l.details != nil:
+		m.detailTitle, m.detail = l.details(m, item)
 		m.overlay = overlayDetails
 	}
 	return nil
@@ -465,7 +522,7 @@ func (m *Model) runActionKey(l *list, key string) tea.Cmd {
 		}
 		switch {
 		case a.prompt != nil:
-			label, initial := a.prompt(item)
+			label, initial := a.prompt(target{app: m.app, sess: m.sess, siteID: m.site.ID}, item)
 			m.ask(label, initial, false, func(text string) tea.Cmd {
 				if text == "" {
 					m.setStatus("Canceled: nothing was entered.")
@@ -590,32 +647,51 @@ func (m *Model) openSite(site omada.Site) tea.Cmd {
 	m.screen = screenMain
 	m.sites.table.Select(site.ID)
 	for _, t := range m.tabs {
-		t.table.SetRows(nil)
-		t.table.SetFilter("")
-		t.items, t.loaded, t.loading, t.err = nil, false, false, nil
+		t.showAlt = false
+		for _, view := range []*tab{t, t.alt} {
+			if view == nil {
+				continue
+			}
+			view.table.SetRows(nil)
+			view.table.SetFilter("")
+			view.items, view.loaded, view.loading, view.err = nil, false, false, nil
+		}
 	}
 	sess := m.sess
 	remember := func() tea.Msg {
 		_ = sess.RememberSite(site) // not worth interrupting anyone for
 		return nil
 	}
-	return tea.Batch(m.loadTab(), remember)
+	return tea.Batch(m.loadTab(), m.loadBackgroundTabs(), remember)
 }
 
-// loadTab fetches the rows of the open tab in the background.
-func (m *Model) loadTab() tea.Cmd {
-	t := m.tabs[m.tab]
+// loadTab fetches the rows of the tab on screen in the background.
+func (m *Model) loadTab() tea.Cmd { return m.load(m.activeTab(), false) }
+
+// loadBackgroundTabs fetches the rows of the tabs that are kept current
+// while another tab is on screen, such as Alerts for its count.
+func (m *Model) loadBackgroundTabs() tea.Cmd {
+	var cmds []tea.Cmd
+	for _, t := range m.tabs {
+		if t.background && t != m.activeTab() && !t.loading {
+			cmds = append(cmds, m.load(t, false))
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m *Model) load(t *tab, enriched bool) tea.Cmd {
 	t.loading = true
 	ctx, sess, siteID := m.ctx, m.sess, m.site.ID
 	return func() tea.Msg {
 		rows, items, err := t.load(ctx, sess, siteID)
-		return rowsMsg{tab: t, sess: sess, siteID: siteID, rows: rows, items: items, err: err}
+		return rowsMsg{tab: t, sess: sess, siteID: siteID, rows: rows, items: items, err: err, enriched: enriched}
 	}
 }
 
-func (m *Model) loadedRows(msg rowsMsg) {
+func (m *Model) loadedRows(msg rowsMsg) tea.Cmd {
 	if msg.sess != m.sess || msg.siteID != m.site.ID {
-		return // rows of a host or site that is no longer open
+		return nil // rows of a host or site that is no longer open
 	}
 	t := msg.tab
 	t.loading = false
@@ -624,11 +700,82 @@ func (m *Model) loadedRows(msg rowsMsg) {
 		if t.loaded {
 			m.setError(msg.err) // keep showing the rows we have
 		}
-		return
+		return nil
 	}
 	t.table.SetRows(msg.rows)
 	t.items = msg.items
 	t.loaded = true
+	if t.enrich == nil || msg.enriched {
+		return nil
+	}
+	// The rows are on screen. Now fetch what takes longer, and when that
+	// brings something new, load the rows once more to show it.
+	ctx, sess, siteID, items := m.ctx, m.sess, m.site.ID, msg.items
+	return func() tea.Msg {
+		if !t.enrich(ctx, sess, siteID, items) {
+			return nil
+		}
+		rows, items, err := t.load(ctx, sess, siteID)
+		return rowsMsg{tab: t, sess: sess, siteID: siteID, rows: rows, items: items, err: err, enriched: true}
+	}
+}
+
+// openWifi shows the details of a Wi-Fi network and fetches its password in
+// the background for the QR code.
+func (m *Model) openWifi(ssid omada.SSID) tea.Cmd {
+	m.overlay = overlayDetails
+	m.detailTitle = ssid.Name
+	m.wifi, m.wifiPassword, m.wifiLoaded, m.wifiCode, m.showPassword = &ssid, "", false, nil, false
+	m.wifiNote = "Loading the QR code…"
+	m.detail = wifiFields(ssid, false, "", false)
+	ctx, sess, siteID := m.ctx, m.sess, m.site.ID
+	return func() tea.Msg {
+		password, err := sess.WifiPassword(ctx, siteID, ssid)
+		return wifiMsg{ssidID: ssid.ID, password: password, err: err}
+	}
+}
+
+func (m *Model) wifiLoadedMsg(msg wifiMsg) {
+	if m.overlay != overlayDetails || m.wifi == nil || m.wifi.ID != msg.ssidID {
+		return // the details were closed meanwhile
+	}
+	m.wifiLoaded = true
+	if msg.err != nil {
+		m.wifiNote = "The password could not be read: " + msg.err.Error()
+		return
+	}
+	m.wifiPassword = msg.password
+	m.detail = wifiFields(*m.wifi, true, m.wifiPassword, m.showPassword)
+	payload, err := app.WifiQRPayload(*m.wifi, msg.password)
+	if err == nil {
+		m.wifiCode, err = qr.Encode(payload)
+	}
+	m.wifiNote = ""
+	if err != nil {
+		m.wifiNote = upperFirst(err.Error()) + "."
+	}
+}
+
+// wifiFields are the detail fields of a Wi-Fi network. The password is shown
+// only on request.
+func wifiFields(ssid omada.SSID, loaded bool, password string, show bool) []output.Field {
+	text := "hidden; press p to show"
+	switch {
+	case !loaded:
+		text = "loading…"
+	case password == "":
+		text = "not revealed by the controller"
+	case show:
+		text = password
+	}
+	return output.SSIDFields(ssid, text)
+}
+
+func upperFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // View draws the whole terminal: a header line, the body, and a bottom line.
@@ -676,14 +823,7 @@ func (m *Model) header() string {
 	case screenSites:
 		left = m.sess.Host() + " › sites"
 	case screenMain:
-		left = m.sess.Host() + " › " + m.site.Name + " "
-		for i, t := range m.tabs {
-			if i == m.tab {
-				left += " [" + t.title + "]"
-			} else {
-				left += "  " + t.title + " "
-			}
-		}
+		return m.mainHeader()
 	}
 	if l := m.current(); l != nil {
 		right = fmt.Sprintf("%d/%d", l.table.Position(), l.table.Len())
@@ -698,12 +838,56 @@ func (m *Model) header() string {
 	return left + strings.Repeat(" ", space) + right
 }
 
+// mainHeader is the header of the tab screen: host and site, the tab bar,
+// and the cursor position. When space is short the position goes first,
+// then the host and site are shortened; the current tab is kept.
+func (m *Model) mainHeader() string {
+	titles := make([]string, len(m.tabs))
+	for i, t := range m.tabs {
+		titles[i] = t.active().title
+		if t.badge != nil {
+			titles[i] += t.badge(t)
+		}
+	}
+	l := &m.activeTab().list
+	right := fmt.Sprintf("%d/%d", l.table.Position(), l.table.Len())
+	if l.loading {
+		right = "… " + right
+	}
+	left := m.sess.Host() + " › " + m.site.Name
+	need := tabBarMinWidth(titles, m.tab)
+	const sep = 2
+	if lipgloss.Width(left)+sep+need+sep+lipgloss.Width(right) > m.width {
+		right = ""
+	}
+	rightSpace := 0
+	if right != "" {
+		rightSpace = sep + lipgloss.Width(right)
+	}
+	if over := lipgloss.Width(left) + sep + need + rightSpace - m.width; over > 0 {
+		left = cut(left, max(lipgloss.Width(left)-over, 0))
+	}
+	leftSpace := 0
+	if left != "" {
+		leftSpace = lipgloss.Width(left) + sep
+	}
+	bar := tabBar(titles, m.tab, max(m.width-leftSpace-rightSpace, 0))
+	head := bar
+	if left != "" {
+		head = left + strings.Repeat(" ", sep) + bar
+	}
+	if right == "" {
+		return head
+	}
+	return head + strings.Repeat(" ", max(m.width-lipgloss.Width(head)-lipgloss.Width(right), 1)) + right
+}
+
 func (m *Model) body(height int) []string {
 	switch m.overlay {
 	case overlayHelp:
 		return m.scrolled(m.helpLines(), height)
 	case overlayDetails:
-		return m.scrolled(m.detailLines(), height)
+		return m.scrolled(m.detailLines(height), height)
 	}
 	switch m.screen {
 	case screenLoading:
@@ -750,15 +934,51 @@ func (m *Model) scrolled(lines []string, height int) []string {
 	return lines[m.detailTop:]
 }
 
-func (m *Model) detailLines() []string {
+// styleQR draws the QR code as light ink on black, which has the right
+// polarity whatever the colors of the terminal are.
+var styleQR = lipgloss.NewStyle().Foreground(lipgloss.BrightWhite).Background(lipgloss.Black)
+
+func (m *Model) detailLines(height int) []string {
+	lines := []string{styleTitle.Render(cut(m.detailTitle, m.width)), ""}
+
+	if m.wifi != nil {
+		switch {
+		case m.wifiCode != nil:
+			// The code is only useful whole, so it gets the height that is
+			// left after the title; the fields follow and can be scrolled to.
+			if drawn, ok := m.wifiCode.Fit(m.width, height-len(lines)); ok {
+				for _, line := range drawn {
+					lines = append(lines, styleQR.Render(line))
+				}
+			} else {
+				lines = append(lines, m.wrapAll([]string{fmt.Sprintf(
+					"This window is too small for the QR code, which needs %d rows. Press p to show the password.",
+					m.wifiCode.MinHeight()+len(lines)+2)})...)
+			}
+		case m.wifiNote != "":
+			lines = append(lines, m.wrapAll([]string{m.wifiNote})...)
+		}
+		lines = append(lines, "")
+	}
+
 	labelWidth := 0
 	for _, f := range m.detail {
 		labelWidth = max(labelWidth, lipgloss.Width(f.Label))
 	}
-	lines := []string{styleTitle.Render(cut(m.detailTitle, m.width)), ""}
+	// A long value, such as an alert message, wraps under itself.
+	indent := strings.Repeat(" ", labelWidth+2)
+	valueWidth := max(m.width-labelWidth-2, 10)
 	for _, f := range m.detail {
-		pad := strings.Repeat(" ", labelWidth-lipgloss.Width(f.Label))
-		lines = append(lines, cut(styleFaint.Render(f.Label+pad)+"  "+f.Value, m.width))
+		label := styleFaint.Render(f.Label + strings.Repeat(" ", labelWidth-lipgloss.Width(f.Label)))
+		wrapped := strings.Split(lipgloss.NewStyle().Width(valueWidth).Render(f.Value), "\n")
+		for n, part := range wrapped {
+			part = strings.TrimRight(part, " ")
+			if n == 0 {
+				lines = append(lines, cut(label+"  "+part, m.width))
+			} else {
+				lines = append(lines, cut(indent+part, m.width))
+			}
+		}
 	}
 	return lines
 }
@@ -780,8 +1000,18 @@ func (m *Model) helpLines() []string {
 	}
 	if l := m.current(); l != nil {
 		for i, a := range l.actions {
-			keys = append(keys[:4+i], append([][2]string{{a.key, a.label + " the selected " + l.noun}}, keys[4+i:]...)...)
+			help := a.help
+			if help == "" {
+				help = a.label + " the selected " + l.noun
+			}
+			keys = append(keys[:4+i], append([][2]string{{a.key, help}}, keys[4+i:]...)...)
 		}
+	}
+	if m.screen == screenMain {
+		if t := m.tabs[m.tab]; t.alt != nil {
+			keys = append(keys, [2]string{"B", "switch between " + t.title + " and " + t.alt.title})
+		}
+		keys = append(keys, [2]string{fmt.Sprintf("1-%d", len(m.tabs)), "jump to a tab"})
 	}
 	if m.screen == screenHosts {
 		keys = append(keys[:4], append([][2]string{{"a", "add a host"}}, keys[4:]...)...)
@@ -804,6 +1034,9 @@ func (m *Model) footer() string {
 	case overlayConfirm:
 		return styleHeader.Render(cutLeft(m.question+" y/N", m.width))
 	case overlayDetails, overlayHelp:
+		if m.overlay == overlayDetails && m.wifi != nil {
+			return styleFaint.Render(cut("p password · any other key back · ↑↓ scroll", m.width))
+		}
 		return styleFaint.Render(cut("any key back · ↑↓ scroll", m.width))
 	}
 	if m.status != "" {
@@ -840,7 +1073,10 @@ func (m *Model) hints() string {
 	}
 	hints = append(hints, "? help", "/ filter")
 	if m.screen == screenMain {
-		hints = append(hints, "tab "+strings.ToLower(m.tabs[(m.tab+1)%len(m.tabs)].title), "S sites")
+		if t := m.tabs[m.tab]; t.alt != nil {
+			hints = append(hints, "B "+t.other().hint)
+		}
+		hints = append(hints, "tab "+strings.ToLower(m.tabs[(m.tab+1)%len(m.tabs)].active().title), "S sites")
 	}
 	if m.screen != screenHosts {
 		hints = append(hints, "H hosts")

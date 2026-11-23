@@ -1,0 +1,12 @@
+home › Default   Devices   Clients   Wi-Fi  [Alerts (2)]                                         2/3
+Alert
+
+Time     2026-11-22 22:00
+Level    Error
+Module   Device
+State    unresolved
+Message  [switch:Rack switch:AA-00-00-00-00-02] port 7 was shut down because the PoE budget was
+         exceeded. Reduce the load on the switch or raise the budget, then turn the port back on.
+
+
+any key back · ↑↓ scroll

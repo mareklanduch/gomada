@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // Credentials every fake controller accepts.
@@ -39,15 +40,37 @@ type Controller struct {
 	// RevokeOnLogin makes each login invalidate all earlier tokens.
 	RevokeOnLogin bool
 
-	sites   []Record
-	devices map[string][]Record // by site ID
-	clients map[string][]Record // by site ID
-	tokens  map[string]bool
-	logins  int
-	nextTok int
-	calls   []string
-	blocked map[string]bool
+	sites    []Record
+	devices  map[string][]Record // by site ID
+	clients  map[string][]Record // by site ID
+	tokens   map[string]bool
+	logins   int
+	nextTok  int
+	calls    []string
+	blocked  map[string]bool
+	wlans    map[string][]Record // WLAN groups by site ID
+	ssids    map[string][]Record // Wi-Fi networks by WLAN group ID
+	alerts   map[string][]Record // by site ID; "resolved" is internal
+	firmware map[string]Record   // latest firmware info by device MAC
+	upgrades map[string]*upgrade // running or finished upgrades by device MAC
+
+	// UpgradePolls is how many times the result of an upgrade is reported
+	// as unfinished before it completes.
+	UpgradePolls int
+	// FailUpgrades makes upgrades finish without success.
+	FailUpgrades bool
 }
+
+// upgrade is the state of one firmware upgrade.
+type upgrade struct {
+	polls    int
+	finished bool
+	success  bool
+}
+
+// Epoch is the moment the sample data of the fake controller is dated
+// around. Tests that show times set their clock to it.
+var Epoch = time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
 
 // New starts a fake controller over plain HTTP with a small sample network.
 // It is shut down when the test ends.
@@ -74,6 +97,34 @@ func newController() *Controller {
 		TokenLifetime: 7200,
 		tokens:        map[string]bool{},
 		blocked:       map[string]bool{},
+		upgrades:      map[string]*upgrade{},
+		wlans: map[string][]Record{
+			"site-1": {{"wlanId": "wlan-1", "name": "Default", "primary": true}},
+			"site-2": {},
+		},
+		ssids: map[string][]Record{
+			"wlan-1": {
+				{"ssidId": "ssid-1", "name": "Home-5G", "band": 2, "security": 3, "guestNetEnable": false, "broadcast": true, "pskSetting": Record{"securityKey": "correct horse battery", "versionPsk": 4}},
+				{"ssidId": "ssid-2", "name": "IoT", "band": 1, "security": 3, "guestNetEnable": false, "broadcast": false, "vlanEnable": true, "vlanId": 30, "pskSetting": Record{"securityKey": "things;and:stuff", "versionPsk": 2}},
+				{"ssidId": "ssid-3", "name": "Guests", "band": 3, "security": 0, "guestNetEnable": true, "broadcast": true},
+				{"ssidId": "ssid-4", "name": "Staff", "band": 7, "security": 2, "guestNetEnable": false, "broadcast": true},
+			},
+		},
+		alerts: map[string][]Record{
+			"site-1": {
+				{"id": "alert-1", "key": "DEVICE_DISCONNECTED", "module": "Device", "level": "Warning", "content": "[ap:AP garage:AA-00-00-00-00-04] was disconnected.", "time": Epoch.Add(-50 * time.Minute).UnixMilli(), "resolved": false},
+				{"id": "alert-2", "key": "POE_OVERLOAD", "module": "Device", "level": "Error", "content": "[switch:Rack switch:AA-00-00-00-00-02] port 7 was shut down because the PoE budget was exceeded. Reduce the load on the switch or raise the budget, then turn the port back on.", "time": Epoch.Add(-14 * time.Hour).UnixMilli(), "resolved": false},
+				{"id": "alert-3", "key": "CLIENT_BLOCKED", "module": "Client", "level": "Information", "content": "[client:Unknown phone:7A-11-22-33-44-55] was blocked.", "time": Epoch.Add(-65 * time.Hour).UnixMilli(), "resolved": true},
+				{"id": "alert-4", "key": "DEVICE_DISCONNECTED", "module": "Device", "level": "Warning", "content": "An alert older than the time range anyone asks for.", "time": Epoch.Add(-90 * 24 * time.Hour).UnixMilli(), "resolved": false},
+			},
+			"site-2": {},
+		},
+		firmware: map[string]Record{
+			"AA-00-00-00-00-01": {"curFwVer": "1.2.3", "lastFwVer": "1.2.3", "fwReleaseLog": ""},
+			"AA-00-00-00-00-02": {"curFwVer": "3.0.1", "lastFwVer": "3.0.1", "fwReleaseLog": ""},
+			"AA-00-00-00-00-03": {"curFwVer": "1.0.14", "lastFwVer": "1.1.2", "fwReleaseLog": "1. Improved roaming between access points.\n2. Fixed a restart under heavy load."},
+			"AA-00-00-00-00-04": {"curFwVer": "5.1.0", "lastFwVer": "", "fwReleaseLog": ""},
+		},
 		sites: []Record{
 			{"siteId": "site-1", "name": "Default"},
 			{"siteId": "site-2", "name": "Workshop"},
@@ -119,6 +170,37 @@ func (c *Controller) SetClients(siteID string, clients ...Record) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.clients[siteID] = clients
+}
+
+// SetAlerts replaces the alerts of a site. Each record takes the fields the
+// controller sends plus "resolved".
+func (c *Controller) SetAlerts(siteID string, alerts ...Record) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.alerts[siteID] = alerts
+}
+
+// SetSSIDs replaces the Wi-Fi networks of a site, all in one WLAN group.
+func (c *Controller) SetSSIDs(siteID string, ssids ...Record) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.wlans[siteID] = []Record{{"wlanId": "wlan-" + siteID, "name": "Default"}}
+	c.ssids["wlan-"+siteID] = ssids
+}
+
+// SetFirmware sets what the controller knows about the firmware of a device.
+func (c *Controller) SetFirmware(mac, current, latest, notes string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.firmware[mac] = Record{"curFwVer": current, "lastFwVer": latest, "fwReleaseLog": notes}
+}
+
+// FirmwareVersion returns the installed firmware version of a device.
+func (c *Controller) FirmwareVersion(mac string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	v, _ := c.firmware[mac]["curFwVer"].(string)
+	return v
 }
 
 // ExpireTokens invalidates every token issued so far, as if they had
@@ -267,7 +349,36 @@ func (c *Controller) api(w http.ResponseWriter, r *http.Request, parts []string)
 	case rest == "devices" && r.Method == http.MethodGet:
 		c.page(w, r, c.devices[siteID])
 	case rest == "clients" && r.Method == http.MethodGet:
-		c.page(w, r, c.clients[siteID])
+		// A blocked client is cut off, so it is not among the connected ones.
+		connected := []Record{}
+		for _, client := range c.clients[siteID] {
+			if mac, _ := client["mac"].(string); !c.blocked[mac] {
+				connected = append(connected, client)
+			}
+		}
+		c.page(w, r, connected)
+	case rest == "insight/clients" && r.Method == http.MethodGet:
+		known := []Record{}
+		for _, client := range c.clients[siteID] {
+			mac, _ := client["mac"].(string)
+			name := client["name"]
+			if name == nil {
+				name = client["hostName"]
+			}
+			known = append(known, Record{
+				"mac": mac, "name": name, "wireless": client["wireless"], "guest": false,
+				"block": c.blocked[mac], "lastSeen": Epoch.Add(-10 * time.Minute).UnixMilli(),
+			})
+		}
+		c.page(w, r, known)
+	case rest == "wireless-network/wlans" && r.Method == http.MethodGet:
+		ok(w, c.wlans[siteID])
+	case strings.HasPrefix(rest, "wireless-network/wlans/") && r.Method == http.MethodGet:
+		c.ssid(w, r, parts[4:])
+	case rest == "logs/alerts" && r.Method == http.MethodGet:
+		c.alertList(w, r, siteID)
+	case parts[2] == "devices" && len(parts) == 5 && strings.Contains(parts[4], "upgrade") || parts[2] == "devices" && len(parts) == 5 && parts[4] == "latest-firmware-info":
+		c.firmwareAction(w, r, siteID, parts[3], parts[4])
 	case parts[2] == "devices" && len(parts) == 5 && parts[4] == "reboot" && r.Method == http.MethodPost:
 		if find(c.devices[siteID], parts[3]) == nil {
 			fail(w, -39050, "This device does not exist.")
@@ -278,6 +389,124 @@ func (c *Controller) api(w http.ResponseWriter, r *http.Request, parts []string)
 		c.generalConfig(w, r, siteID, parts[2:len(parts)-1])
 	case parts[2] == "clients" && len(parts) == 5:
 		c.clientAction(w, r, siteID, parts[3], parts[4])
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// ssid serves the Wi-Fi networks of a WLAN group. rest is the path after
+// "wlans": [wlanId, "ssids"] for the list, [wlanId, "ssids", ssidId] for one.
+func (c *Controller) ssid(w http.ResponseWriter, r *http.Request, rest []string) {
+	if len(rest) < 2 || rest[1] != "ssids" {
+		http.NotFound(w, r)
+		return
+	}
+	ssids, found := c.ssids[rest[0]]
+	if !found {
+		fail(w, -33200, "This WLAN group does not exist.")
+		return
+	}
+	if len(rest) == 2 {
+		// The list leaves out the settings that hold the password.
+		summaries := []Record{}
+		for _, s := range ssids {
+			summary := Record{}
+			for k, v := range s {
+				if k != "pskSetting" {
+					summary[k] = v
+				}
+			}
+			summaries = append(summaries, summary)
+		}
+		c.page(w, r, summaries)
+		return
+	}
+	for _, s := range ssids {
+		if s["ssidId"] == rest[2] {
+			ok(w, s)
+			return
+		}
+	}
+	fail(w, -33201, "This SSID does not exist.")
+}
+
+// alertList serves the alerts of a site. Like the controller, it insists on
+// a time range and filters by it and by the resolved state.
+func (c *Controller) alertList(w http.ResponseWriter, r *http.Request, siteID string) {
+	q := r.URL.Query()
+	start, errStart := strconv.ParseInt(q.Get("filters.timeStart"), 10, 64)
+	end, errEnd := strconv.ParseInt(q.Get("filters.timeEnd"), 10, 64)
+	if errStart != nil || errEnd != nil {
+		fail(w, -1001, "Invalid request parameters.")
+		return
+	}
+	matching := []Record{}
+	for _, a := range c.alerts[siteID] {
+		at, _ := a["time"].(int64)
+		resolved, _ := a["resolved"].(bool)
+		if at < start || at > end {
+			continue
+		}
+		if want := q.Get("filters.resolved"); want != "" && want != strconv.FormatBool(resolved) {
+			continue
+		}
+		public := Record{}
+		for k, v := range a {
+			if k != "resolved" {
+				public[k] = v
+			}
+		}
+		matching = append(matching, public)
+	}
+	c.page(w, r, matching)
+}
+
+// firmwareAction serves the firmware endpoints of one device.
+func (c *Controller) firmwareAction(w http.ResponseWriter, r *http.Request, siteID, mac, action string) {
+	dev := find(c.devices[siteID], mac)
+	info := c.firmware[mac]
+	if dev == nil {
+		fail(w, -39050, "This device does not exist.")
+		return
+	}
+	if info == nil {
+		info = Record{"curFwVer": dev["firmwareVersion"], "lastFwVer": "", "fwReleaseLog": ""}
+		c.firmware[mac] = info
+	}
+	switch {
+	case action == "latest-firmware-info" && r.Method == http.MethodGet:
+		ok(w, info)
+	case action == "start-online-upgrade" && r.Method == http.MethodPost:
+		if dev["status"] != 1 {
+			fail(w, -39020, "Failed to upgrade because no device is ready for upgrading.")
+			return
+		}
+		if info["lastFwVer"] == "" || info["lastFwVer"] == info["curFwVer"] {
+			fail(w, -39026, "The upgrade file is the same with the current version.")
+			return
+		}
+		c.upgrades[mac] = &upgrade{polls: c.UpgradePolls}
+		dev["detailStatus"] = 12
+		ok(w, nil)
+	case action == "online-upgrade-result" && r.Method == http.MethodGet:
+		up := c.upgrades[mac]
+		if up == nil {
+			ok(w, Record{"finished": true, "success": false})
+			return
+		}
+		if !up.finished {
+			if up.polls > 0 {
+				up.polls--
+			} else {
+				up.finished, up.success = true, !c.FailUpgrades
+				dev["detailStatus"] = 14
+				if up.success {
+					info["curFwVer"] = info["lastFwVer"]
+					dev["firmwareVersion"] = info["lastFwVer"]
+				}
+			}
+		}
+		ok(w, Record{"finished": up.finished, "success": up.success})
 	default:
 		http.NotFound(w, r)
 	}

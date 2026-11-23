@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zalando/go-keyring"
 
@@ -19,6 +20,13 @@ import (
 	"github.com/mareklanduch/gomada/internal/secret"
 	"github.com/mareklanduch/gomada/internal/tui"
 )
+
+// TestMain pins the time zone, so times in expected output do not depend on
+// where the tests run.
+func TestMain(m *testing.M) {
+	time.Local = time.UTC
+	os.Exit(m.Run())
+}
 
 var update = flag.Bool("update", false, "rewrite the golden files with the current output")
 
@@ -77,6 +85,8 @@ func (e *env) run(args ...string) (stdout, stderr string, code int) {
 			e.passwords = e.passwords[1:]
 			return p, nil
 		},
+		Now:       func() time.Time { return omadatest.Epoch },
+		PollEvery: time.Millisecond,
 		RunTUI: func(_ context.Context, _ *app.App, opts tui.Options) error {
 			e.tuiOpts = &opts
 			return nil

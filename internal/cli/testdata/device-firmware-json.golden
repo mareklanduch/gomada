@@ -1,0 +1,8 @@
+{
+  "mac": "AA-00-00-00-00-03",
+  "name": "AP office",
+  "installed": "1.0.14",
+  "latest": "1.1.2",
+  "update_available": true,
+  "release_notes": "1. Improved roaming between access points.\n2. Fixed a restart under heavy load."
+}

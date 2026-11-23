@@ -45,6 +45,8 @@ type Options struct {
 	// Logger, when set, receives one debug line per request to a
 	// controller.
 	Logger *slog.Logger
+	// Now returns the current time. Nil means time.Now.
+	Now func() time.Time
 	// Passphrase returns the passphrase that unlocks a host's secret when
 	// it is kept in an encrypted file. Nil means there is no way to ask.
 	Passphrase func(host string) (string, error)
@@ -313,6 +315,13 @@ func (a *App) httpClient(tls omada.TLSOptions) *http.Client {
 		omada.LogRequests(hc, a.opts.Logger)
 	}
 	return hc
+}
+
+func (a *App) now() time.Time {
+	if a.opts.Now != nil {
+		return a.opts.Now()
+	}
+	return time.Now()
 }
 
 func (a *App) timeout() time.Duration {

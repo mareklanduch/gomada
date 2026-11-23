@@ -43,6 +43,7 @@ internal/
   secret/             client secret storage: keychain, encrypted file, env
   tokencache/         access token storage between runs
   output/             tables, JSON, and value formatting
+  qr/                 QR codes drawn with text characters
   version/            build information
 docs/adr/             decisions and their reasons
 scripts/              release version and coverage scripts, with tests
@@ -58,6 +59,7 @@ Rules that keep it simple:
 - A new action on a device or client is one `action` value in
   `internal/tui/views.go` and one command in `internal/cli`. Confirmation and
   `--yes` handling come with them.
+- A new tab is one `tab` value in `internal/tui/views.go`, listed in `New`.
 
 ## Tests
 

@@ -1,0 +1,4 @@
+TIME              LEVEL        STATE       ID       MESSAGE
+2026-11-23 11:10  Warning      unresolved  alert-1  [ap:AP garage:AA-00-00-00-00-04] was disconnected.
+2026-11-22 22:00  Error        unresolved  alert-2  [switch:Rack switch:AA-00-00-00-00-02] port 7 was shut down because the PoE budget was exceeded. Reduce the load on the switch or raise the budget, then turn the port back on.
+2026-11-20 19:00  Information  resolved    alert-3  [client:Unknown phone:7A-11-22-33-44-55] was blocked.

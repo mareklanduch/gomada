@@ -26,19 +26,27 @@ const (
 	StatusIsolated     = 4
 )
 
+// Detailed device states worth telling apart from the plain status.
+const (
+	DetailUpgrading = 12
+	DetailRebooting = 13
+)
+
 // Device is a gateway, switch, or access point.
 type Device struct {
-	MAC      string `json:"mac"`
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Model    string `json:"model"`
-	IP       string `json:"ip"`
-	Status   int    `json:"status"`
-	Uptime   Text   `json:"uptime"`
-	CPU      Num    `json:"cpuUtil"`
-	Mem      Num    `json:"memUtil"`
-	Firmware string `json:"firmwareVersion"`
-	Serial   string `json:"sn"`
+	MAC    string `json:"mac"`
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	Model  string `json:"model"`
+	IP     string `json:"ip"`
+	Status int    `json:"status"`
+	// DetailStatus refines Status; see the Detail constants.
+	DetailStatus int    `json:"detailStatus"`
+	Uptime       Text   `json:"uptime"`
+	CPU          Num    `json:"cpuUtil"`
+	Mem          Num    `json:"memUtil"`
+	Firmware     string `json:"firmwareVersion"`
+	Serial       string `json:"sn"`
 }
 
 // Label is the device's name, or its MAC address when it has no name.
@@ -54,6 +62,12 @@ func (d Device) Online() bool { return d.Status == StatusConnected }
 
 // StatusText describes the device status in a word or two.
 func (d Device) StatusText() string {
+	switch d.DetailStatus {
+	case DetailUpgrading:
+		return "updating"
+	case DetailRebooting:
+		return "rebooting"
+	}
 	switch d.Status {
 	case StatusDisconnected:
 		return "offline"
@@ -76,7 +90,7 @@ func (c *Client) Devices(ctx context.Context, siteID string) ([]Device, error) {
 
 // RebootDevice restarts a device.
 func (c *Client) RebootDevice(ctx context.Context, siteID, mac string) error {
-	return c.call(ctx, http.MethodPost, sitePath(siteID, "/devices/"+url.PathEscape(mac)+"/reboot"), nil, nil)
+	return c.call(ctx, http.MethodPost, devicePath(siteID, mac, "/reboot"), nil, nil)
 }
 
 // codeEasyManagedSwitch is the answer to a switch request for a switch that

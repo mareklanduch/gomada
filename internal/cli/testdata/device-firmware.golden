@@ -1,0 +1,5 @@
+Device:         AP office
+Installed:      1.0.14
+Latest:         1.1.2 (update available)
+Release notes:  1. Improved roaming between access points.
+                2. Fixed a restart under heavy load.

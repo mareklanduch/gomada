@@ -65,3 +65,72 @@ func ClientFields(c omada.NetClient) []Field {
 		Field{"Uptime", Seconds(float64(c.Uptime))},
 	)
 }
+
+// SSIDFields lists everything worth showing about one Wi-Fi network.
+// password is what to show as the password: the password itself, or a note
+// that it is hidden. It is left out for networks that have none.
+func SSIDFields(s omada.SSID, password string) []Field {
+	fields := []Field{
+		{"Name", OrNone(s.Name)},
+		{"Security", s.SecurityText()},
+		{"Band", OrNone(s.BandText())},
+		{"Guest network", YesNo(s.Guest)},
+		{"Hidden", YesNo(s.Hidden())},
+	}
+	if s.VLANOn {
+		fields = append(fields, Field{"VLAN", fmt.Sprintf("%d", int(s.VLANID))})
+	}
+	if s.Security == omada.SecurityPersonal {
+		fields = append(fields, Field{"Password", password})
+	}
+	return fields
+}
+
+// AlertState says whether an alert is resolved.
+func AlertState(a omada.Alert) string {
+	if a.Resolved {
+		return "resolved"
+	}
+	return "unresolved"
+}
+
+// AlertFields lists everything worth showing about one alert.
+func AlertFields(a omada.Alert) []Field {
+	return []Field{
+		{"Time", Timestamp(a.Time())},
+		{"Level", OrNone(a.Level)},
+		{"Module", OrNone(a.Module)},
+		{"State", AlertState(a)},
+		{"Message", OrNone(a.Content)},
+	}
+}
+
+// LatestFirmware describes the newest known firmware next to the installed
+// one: the version with a note when it is an update, or that the device is
+// up to date.
+func LatestFirmware(f omada.Firmware) string {
+	switch {
+	case f.UpdateAvailable():
+		return f.Latest + " (update available)"
+	case f.Latest == "":
+		return "unknown"
+	}
+	return "up to date"
+}
+
+// FirmwareFields lists the firmware state of one device.
+func FirmwareFields(d omada.Device, f omada.Firmware) []Field {
+	installed := f.Current
+	if installed == "" {
+		installed = d.Firmware
+	}
+	fields := []Field{
+		{"Device", d.Label()},
+		{"Installed", OrNone(installed)},
+		{"Latest", LatestFirmware(f)},
+	}
+	if f.UpdateAvailable() && f.ReleaseNotes != "" {
+		fields = append(fields, Field{"Release notes", f.ReleaseNotes})
+	}
+	return fields
+}

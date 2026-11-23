@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 // NetClient is a phone, laptop, or other machine connected to a site.
@@ -42,6 +43,52 @@ func (n NetClient) Label() string {
 // Clients lists the clients currently connected to a site.
 func (c *Client) Clients(ctx context.Context, siteID string) ([]NetClient, error) {
 	return list[NetClient](ctx, c, sitePath(siteID, "/clients"))
+}
+
+// KnownClient is a client the controller remembers, connected or not.
+type KnownClient struct {
+	MAC      string `json:"mac"`
+	Name     string `json:"name"`
+	Wireless bool   `json:"wireless"`
+	Guest    bool   `json:"guest"`
+	Blocked  bool   `json:"block"`
+	// LastSeenMillis is when the client was last connected, in
+	// milliseconds since 1970.
+	LastSeenMillis Num `json:"lastSeen"`
+}
+
+// Label is the client's name, or its MAC address when it has no name.
+func (k KnownClient) Label() string {
+	if k.Name != "" {
+		return k.Name
+	}
+	return k.MAC
+}
+
+// LastSeen returns when the client was last connected, or the zero time
+// when the controller does not say.
+func (k KnownClient) LastSeen() time.Time {
+	if k.LastSeenMillis <= 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(int64(k.LastSeenMillis))
+}
+
+// BlockedClients lists the clients of a site that are barred from the
+// network. The controller has no list of just those, so its list of known
+// clients is read and filtered.
+func (c *Client) BlockedClients(ctx context.Context, siteID string) ([]KnownClient, error) {
+	known, err := list[KnownClient](ctx, c, sitePath(siteID, "/insight/clients"))
+	if err != nil {
+		return nil, err
+	}
+	blocked := []KnownClient{}
+	for _, k := range known {
+		if k.Blocked {
+			blocked = append(blocked, k)
+		}
+	}
+	return blocked, nil
 }
 
 // RenameClient sets the friendly name of a client.
