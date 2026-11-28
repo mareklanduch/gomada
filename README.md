@@ -15,6 +15,8 @@ home › Default  [Devices]  Clients                                           1
 enter details · r reboot · n rename · ? help · / filter · tab clients · S sites
 ```
 
+![The Devices tab of gomada in a terminal](docs/screenshots/devices.png)
+
 - See the devices and connected clients of a site.
 - Reboot and rename devices. Rename, block, unblock, and reconnect clients.
 - See which devices have a firmware update waiting, and install it.

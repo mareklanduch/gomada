@@ -64,6 +64,12 @@
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
   .card h3 { margin-top: 0; }
   .card pre { margin-bottom: 0; }
+  .shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin: 0 0 18px; align-items: start; }
+  .shots figure { margin: 0; }
+  .shots figure.wide { grid-column: 1 / -1; }
+  .shots img { display: block; max-width: 100%; height: auto; border-radius: 10px; }
+  .shots figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+  @media (max-width: 640px) { .shots { grid-template-columns: 1fr; } }
   footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
 </style>
 </head>
@@ -77,6 +83,7 @@
   <nav class="toc" aria-label="On this page">
     <a href="#run">How to run it</a>
     <a href="#same">What stayed the same</a>
+    <a href="#screens">Screenshots</a>
     <a href="#changed">What changed</a>
     <a href="#differences">Differences you can notice</a>
     <a href="#inside">Differences inside</a>
@@ -163,6 +170,23 @@ cargo test --test live -- --ignored --nocapture</code></pre>
 
 enter details · r reboot · n rename · U update · ? help · / filter · tab clients · S sites</code></pre>
 <p>The view is still deliberately plain: one list at a time, one line of key hints, tables that scroll sideways on a small screen. ratatui draws it; the layout is the one from before.</p>
+
+<h2 id="screens">Screenshots</h2>
+
+<p>These are the Rust version running in a real pseudo-terminal against the fake controller: the program's output was recorded and drawn by a terminal emulator (xterm.js, JetBrains Mono). Nothing was edited. The thin lines across the QR code come from the emulator's line spacing, not from gomada.</p>
+
+<div class="shots">
+  <figure class="wide"><img src="screenshots/devices.png" alt="Devices of a site. The arrow after a firmware version marks an update that is waiting; the offline device is dimmed." loading="lazy"><figcaption>Devices of a site. The arrow after a firmware version marks an update that is waiting; the offline device is dimmed.</figcaption></figure>
+  <figure class="wide"><img src="screenshots/device-details.png" alt="Details of a device, with the release notes of the waiting firmware." loading="lazy"><figcaption>Details of a device, with the release notes of the waiting firmware.</figcaption></figure>
+  <figure class="wide"><img src="screenshots/clients.png" alt="Connected clients. The › at the right edge says more columns follow." loading="lazy"><figcaption>Connected clients. The › at the right edge says more columns follow.</figcaption></figure>
+  <figure class="wide"><img src="screenshots/alerts.png" alt="Alerts, newest first; the tab shows how many are unresolved." loading="lazy"><figcaption>Alerts, newest first; the tab shows how many are unresolved.</figcaption></figure>
+  <figure class="wide"><img src="screenshots/alert-details.png" alt="One alert in full; the long message wraps under itself." loading="lazy"><figcaption>One alert in full; the long message wraps under itself.</figcaption></figure>
+  <figure class="wide"><img src="screenshots/confirm-reboot.png" alt="Rebooting asks first, in the bottom line." loading="lazy"><figcaption>Rebooting asks first, in the bottom line.</figcaption></figure>
+  <figure class="wide"><img src="screenshots/help.png" alt="The key list, including the actions of the open tab." loading="lazy"><figcaption>The key list, including the actions of the open tab.</figcaption></figure>
+  <figure class="wide"><img src="screenshots/wizard.png" alt="The add-a-controller wizard on first run." loading="lazy"><figcaption>The add-a-controller wizard on first run.</figcaption></figure>
+  <figure class="narrow"><img src="screenshots/wifi-qr.png" alt="A QR code that phones scan to join a Wi-Fi network." loading="lazy"><figcaption>A QR code that phones scan to join a Wi-Fi network.</figcaption></figure>
+  <figure class="narrow"><img src="screenshots/small-screen-scrolled.png" alt="A 40 by 9 terminal, scrolled two columns sideways; the name stays in place." loading="lazy"><figcaption>A 40 by 9 terminal, scrolled two columns sideways; the name stays in place.</figcaption></figure>
+</div>
 
 <h2 id="changed">What changed</h2>
 
