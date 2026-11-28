@@ -1,8 +1,3 @@
 # Build output
-/gomada
-/gomada.exe
+/target/
 /dist/
-
-# Test output
-*.out
-*.test

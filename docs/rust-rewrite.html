@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gomada: the Rust rewrite</title>
+<style>
+  :root {
+    --bg: #fbfaf7; --surface: #ffffff; --ink: #1d1f23; --muted: #5d636e; --line: #dfdcd3;
+    --accent: #b4491f; --accent-soft: #f6e6dc; --ok: #1f7a4d; --ok-soft: #e2f1e8;
+    --warn: #8a5a00; --warn-soft: #f7ecd0; --code-bg: #f1eee6; --term-bg: #16181d; --term-ink: #d9dce3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171b; --surface: #1c1f25; --ink: #e6e8ec; --muted: #9aa1ad; --line: #2e333c;
+      --accent: #f08a5d; --accent-soft: #3a261d; --ok: #6fcf97; --ok-soft: #1b3327;
+      --warn: #e6b450; --warn-soft: #3a2f14; --code-bg: #23272f; --term-bg: #0e1013; --term-ink: #d9dce3;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+  main { max-width: 900px; margin: 0 auto; padding: 48px 20px 80px; }
+  header.top { border-bottom: 1px solid var(--line); padding-bottom: 28px; margin-bottom: 8px; }
+  .eyebrow { font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+  h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.12; margin: 14px 0 14px; letter-spacing: -.02em; text-wrap: balance; }
+  h2 { font-size: 24px; line-height: 1.25; margin: 56px 0 12px; letter-spacing: -.01em; scroll-margin-top: 16px; }
+  h3 { font-size: 17px; margin: 28px 0 8px; }
+  p { margin: 0 0 14px; }
+  .lede { font-size: 18px; color: var(--muted); max-width: 62ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  code, pre, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: .9em; }
+  code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--term-bg); color: var(--term-ink); padding: 16px 18px; border-radius: 10px; overflow-x: auto; line-height: 1.5; margin: 0 0 16px; }
+  pre code { background: none; padding: 0; color: inherit; font-size: 13.5px; }
+  pre .c { color: #8b93a1; }
+  kbd { background: var(--surface); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 .4em; }
+  nav.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; margin: 22px 0 0; padding: 0; list-style: none; }
+  nav.toc a { display: inline-block; padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px; text-decoration: none; color: var(--ink); background: var(--surface); font-size: 14px; }
+  nav.toc a:hover { border-color: var(--accent); color: var(--accent); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 24px 0 8px; }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .stat b { display: block; font-size: 28px; line-height: 1.1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 14px; }
+  .table-wrap { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 15px; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  tr:last-child td { border-bottom: 0; }
+  th { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; white-space: nowrap; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+  .tag.same { background: var(--ok-soft); color: var(--ok); }
+  .tag.diff { background: var(--warn-soft); color: var(--warn); }
+  .tag.new { background: var(--accent-soft); color: var(--accent); }
+  .note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 0 0 18px; }
+  .note.warn { border-color: var(--warn); background: var(--warn-soft); }
+  .note p:last-child { margin: 0; }
+  ul, ol { padding-left: 22px; margin: 0 0 16px; }
+  li { margin-bottom: 6px; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .card h3 { margin-top: 0; }
+  .card pre { margin-bottom: 0; }
+  footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+
+<header class="top">
+  <div class="eyebrow">Branch claude/gifted-hypatia-c2v6z5 · 2026-11-28</div>
+  <h1>gomada, rewritten from Go to Rust</h1>
+  <p class="lede">The same terminal app for TP-Link Omada controllers: the same commands, the same screens, the same files on disk. The language underneath changed, and the interactive view is now drawn with <a href="https://ratatui.rs">ratatui</a>. This page says how to run it, what changed, and where the two versions differ.</p>
+  <nav class="toc" aria-label="On this page">
+    <a href="#run">How to run it</a>
+    <a href="#same">What stayed the same</a>
+    <a href="#changed">What changed</a>
+    <a href="#differences">Differences you can notice</a>
+    <a href="#inside">Differences inside</a>
+    <a href="#numbers">Numbers</a>
+    <a href="#verified">What was checked</a>
+    <a href="#open">What was not</a>
+  </nav>
+</header>
+
+<div class="stats">
+  <div class="stat"><b>95 / 100</b><span>CLI commands print byte-identical output and exit codes in both versions</span></div>
+  <div class="stat"><b>34 / 35</b><span>expected-output files of the Go tests pass unchanged against the Rust code</span></div>
+  <div class="stat"><b>166</b><span>Rust tests pass; clippy reports nothing with warnings as errors</span></div>
+  <div class="stat"><b>0</b><span>migration steps: config, secrets, and tokens are read as they are</span></div>
+</div>
+
+<h2 id="run">How to run it</h2>
+
+<p>You need a stable Rust toolchain (1.85 or newer) from <a href="https://rustup.rs">rustup.rs</a>. Nothing else: no C library has to be installed, and TLS and the keychain client are compiled in.</p>
+
+<pre><code><span class="c"># get the branch</span>
+git fetch origin claude/gifted-hypatia-c2v6z5
+git switch claude/gifted-hypatia-c2v6z5
+
+<span class="c"># run from the checkout</span>
+cargo run                      <span class="c"># opens the interactive view</span>
+cargo run -- --help            <span class="c"># or any command</span>
+cargo run -- device list
+
+<span class="c"># or build the executable once and use that</span>
+cargo build --release          <span class="c"># about a minute the first time</span>
+./target/release/gomada
+./target/release/gomada host add home --url https://192.168.0.2:8043 --client-id 9f8e7d
+
+<span class="c"># or install it on your PATH</span>
+cargo install --path .</code></pre>
+
+<p>With no host set up, <code>gomada</code> opens a short wizard that asks for the controller address, the client ID, and the client secret, exactly as before. If you already used the Go version on this machine, there is nothing to set up: the Rust version reads the same config file, the same keychain entries, and the same encrypted secret file.</p>
+
+<div class="cols">
+  <div class="card">
+    <h3>Tests and checks</h3>
+<pre><code>make check     <span class="c"># fmt, clippy, tests</span>
+cargo test     <span class="c"># tests only</span>
+make golden    <span class="c"># rewrite expected output</span></code></pre>
+  </div>
+  <div class="card">
+    <h3>Against a real controller</h3>
+<pre><code>GOMADA_TEST_URL=https://192.168.0.2:8043 \
+GOMADA_TEST_CLIENT_ID=... \
+GOMADA_TEST_CLIENT_SECRET=... \
+cargo test --test live -- --ignored --nocapture</code></pre>
+  </div>
+</div>
+
+<p>The test in the second box only reads (sites, devices, clients, Wi-Fi networks). Set <code>GOMADA_TEST_TLS_PIN</code> for a controller with a self-signed certificate.</p>
+
+<h2 id="same">What stayed the same</h2>
+
+<p>The rewrite is a port, not a redesign. The expected output and screens of the Go tests stayed in the repository and are now the expected output of the Rust tests.</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Area</th><th>Status</th><th>How it was checked</th></tr></thead>
+  <tbody>
+    <tr><td>Commands, flags, tables, JSON, exit codes</td><td><span class="tag same">same</span></td><td>100 commands run with both executables against the same fake controller; 95 identical, the other 5 are listed below. All 23 CLI golden files pass unchanged.</td></tr>
+    <tr><td>Interactive view: screens, keys, wizard</td><td><span class="tag same">same</span></td><td>11 of the 12 screen golden files pass unchanged. The twelfth shows a QR code, which has a different pattern (see below).</td></tr>
+    <tr><td>Config file (<code>config.yaml</code>)</td><td><span class="tag same">same</span></td><td>A file written by the Go version loads; a file written by the Rust version was read by the Go executable.</td></tr>
+    <tr><td>Encrypted secret file (scrypt, AES-256-GCM)</td><td><span class="tag same">same</span></td><td>Both directions: a file written by Go is decrypted in a Rust test; a file written by Rust was decrypted by the Go executable.</td></tr>
+    <tr><td>Cached access token</td><td><span class="tag same">same</span></td><td>Same JSON, same places. The Go executable reused a token the Rust one had cached.</td></tr>
+    <tr><td>Keychain entries</td><td><span class="tag same">same names</span></td><td>Service <code>gomada</code>, account = host name. Written to match the Go library on each system; only Linux could be tried here (see <a href="#open">what was not checked</a>).</td></tr>
+    <tr><td>Environment variables, file locations</td><td><span class="tag same">same</span></td><td><code>GOMADA_CLIENT_SECRET</code>, <code>GOMADA_PASSPHRASE</code>, <code>GOMADA_CONFIG</code>, <code>NO_COLOR</code>, <code>XDG_*</code>.</td></tr>
+    <tr><td>Security rules</td><td><span class="tag same">same</span></td><td>The secret is never a flag, never in the config, never logged. Self-signed certificates are pinned; a changed certificate is refused.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<pre><code>home › Default  [Devices]  Clients   Wi-Fi   Alerts (2)                             1/4
+     NAME         TYPE     STATUS     MODEL      FIRMWARE   IP            UPTIME    CPU
+▸ ●  Core router  gateway  connected  ER707-M2   1.2.3      192.168.0.1   41d 6h     8%
+  ●  Rack switch  switch   connected  SG3428XMP  3.0.1      192.168.0.2   41d 6h    12%
+  ○  AP garage    ap       offline    EAP225     5.1.0      192.168.0.23  -           -
+  ●  AP office    ap       connected  EAP670     1.0.14 ↑   192.168.0.21  12d 2h     5%
+
+enter details · r reboot · n rename · U update · ? help · / filter · tab clients · S sites</code></pre>
+<p>The view is still deliberately plain: one list at a time, one line of key hints, tables that scroll sideways on a small screen. ratatui draws it; the layout is the one from before.</p>
+
+<h2 id="changed">What changed</h2>
+
+<h3>Libraries</h3>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Job</th><th>Go version</th><th>Rust version</th></tr></thead>
+  <tbody>
+    <tr><td>Interactive view</td><td>Bubble Tea, Lip Gloss</td><td><strong>ratatui</strong> on crossterm</td></tr>
+    <tr><td>Command line</td><td>Cobra</td><td>clap (derive), clap_complete</td></tr>
+    <tr><td>HTTP and TLS</td><td><code>net/http</code>, <code>crypto/tls</code></td><td>ureq, rustls with the system's root certificates</td></tr>
+    <tr><td>JSON, YAML</td><td><code>encoding/json</code>, yaml.v3</td><td>serde, serde_json, serde_yaml_ng</td></tr>
+    <tr><td>Keychain</td><td>zalando/go-keyring</td><td>keyring (Secret Service over D-Bus in pure Rust, macOS Keychain, Windows Credential Manager)</td></tr>
+    <tr><td>Secret file</td><td>x/crypto scrypt, <code>crypto/aes</code></td><td>scrypt, aes-gcm</td></tr>
+    <tr><td>QR codes</td><td>rsc.io/qr</td><td>qrcode</td></tr>
+    <tr><td>Hidden input</td><td>x/term</td><td>rpassword</td></tr>
+    <tr><td>Releases</td><td>GoReleaser on one Linux runner</td><td><code>cross</code> for Linux targets, native runners for macOS and Windows</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Layout</h3>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Go</th><th>Rust</th><th>What it is</th></tr></thead>
+  <tbody>
+    <tr><td><code>cmd/gomada</code></td><td><code>src/main.rs</code></td><td>Calls the command line and nothing else</td></tr>
+    <tr><td><code>internal/cli/*.go</code></td><td><code>src/cli.rs</code></td><td>Commands and what each prints</td></tr>
+    <tr><td><code>internal/tui</code></td><td><code>src/tui/</code></td><td><code>mod.rs</code> event loop, <code>model.rs</code> state and keys, <code>views.rs</code> tabs and actions, <code>render.rs</code> drawing, <code>table.rs</code>, <code>text.rs</code></td></tr>
+    <tr><td><code>internal/app</code></td><td><code>src/app.rs</code></td><td>Use cases shared by both front ends</td></tr>
+    <tr><td><code>internal/omada</code></td><td><code>src/omada/</code></td><td>Open API client: login, tokens, paging, TLS</td></tr>
+    <tr><td><code>config</code>, <code>secret</code>, <code>tokencache</code>, <code>output</code>, <code>qr</code>, <code>version</code></td><td><code>src/*.rs</code> of the same names</td><td>One file each</td></tr>
+    <tr><td>(errors per package)</td><td><code>src/error.rs</code></td><td>One error type with classes: authentication, unreachable, certificate, usage, ...</td></tr>
+    <tr><td><code>omada/omadatest</code></td><td><code>tests/support/fake.rs</code></td><td>The fake controller, ported</td></tr>
+    <tr><td><code>*/testdata</code></td><td><code>tests/testdata</code></td><td>The same golden files, moved</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Also updated: <code>README.md</code>, <code>CONTRIBUTING.md</code>, <code>Makefile</code>, the CI and release workflows, Dependabot (now for Cargo), and the decision records. <code>docs/adr/0009-rust-and-ratatui.md</code> is new and records the decision.</p>
+
+<h2 id="differences">Differences you can notice</h2>
+
+<p>These are all the places where the Rust version behaves differently from the Go version, as far as testing and reading the code showed.</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Where</th><th>Go version</th><th>Rust version</th></tr></thead>
+  <tbody>
+    <tr><td>Wrong usage <span class="tag diff">wording</span></td><td>Cobra's messages, e.g. <code>gomada: unknown command "nope"</code> and a hint line</td><td>clap's messages, e.g. <code>error: unrecognized subcommand 'nope'</code> with a usage line. Exit code is 2 in both. Usage errors that gomada itself detects (such as <code>--wired</code> with <code>--wireless</code>) are worded as before.</td></tr>
+    <tr><td><code>--help</code> <span class="tag diff">layout</span></td><td>Cobra's layout</td><td>clap's layout. Same commands, flags, and descriptions.</td></tr>
+    <tr><td>A value that starts with a dash</td><td><code>device rename X -bad</code>: "unknown shorthand flag"</td><td>"unexpected argument '-b'". Both exit with 2; in both, write <code>-- -bad</code> to pass it.</td></tr>
+    <tr><td>Network errors <span class="tag diff">wording</span></td><td><code>dial tcp 127.0.0.1:1: connect: connection refused</code></td><td><code>Connection Failed: Connect error: Connection refused (os error 111)</code>. The words before it, the hint after it, and exit code 4 are the same.</td></tr>
+    <tr><td>QR codes <span class="tag diff">pattern</span></td><td>One of the eight valid mask patterns</td><td>Another one. Same content, same size. A test reads the drawn code back with a QR decoder and compares the content.</td></tr>
+    <tr><td><code>--verbose</code> log lines</td><td>Go's <code>slog</code> text format</td><td>Same fields (<code>level</code>, <code>msg</code>, <code>method</code>, <code>url</code>, <code>duration</code>, <code>status</code>), slightly different time and duration notation. Still no headers, bodies, or query strings.</td></tr>
+    <tr><td><code>completion</code></td><td>bash, zsh, fish, powershell</td><td>The same four plus elvish. The scripts are generated by clap, so their content differs.</td></tr>
+    <tr><td>Proxies <span class="tag diff">removed</span></td><td>Requests honored <code>HTTPS_PROXY</code> and <code>NO_PROXY</code></td><td>Requests always go straight to the controller. Controllers are normally on the local network; if you reach yours through a proxy, this matters.</td></tr>
+    <tr><td>Old TLS</td><td>Go's TLS stack</td><td>rustls: TLS 1.2 and 1.3 with modern cipher suites only. A controller that offers nothing better than old suites would be refused.</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> during a command</td><td>The request was canceled and the command returned an error</td><td>The process ends at once. In the interactive view <kbd>Ctrl</kbd>+<kbd>C</kbd> quits cleanly, as before.</td></tr>
+    <tr><td><code>device upgrade</code> giving up</td><td>"has not reported back after 20m0s"</td><td>"has not reported back after 20 minutes"</td></tr>
+    <tr><td>Odd answers from a controller <span class="tag new">more lenient</span></td><td>A <code>null</code> where text or a number was expected was accepted for most fields; a status sent as a string failed the whole list</td><td>Every field accepts <code>null</code>, and numbers may arrive as strings everywhere.</td></tr>
+    <tr><td>Damaged secret file <span class="tag new">stricter</span></td><td>scrypt cost parameters were taken from the file as they were</td><td>Absurd parameters are refused before any work is done, so a hostile file cannot make gomada use gigabytes of memory.</td></tr>
+    <tr><td>Typed secrets in the view <span class="tag new">stricter</span></td><td>The text of a prompt stayed in memory until the next prompt</td><td>It is cleared when the prompt closes.</td></tr>
+    <tr><td>Version without a release build</td><td colspan="2"><code>gomada dev (commit none, built unknown)</code> in both. Release builds get the version from the tag through <code>GOMADA_VERSION</code> instead of Go linker flags.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="inside">Differences inside</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Topic</th><th>Go version</th><th>Rust version</th></tr></thead>
+  <tbody>
+    <tr><td>Background work in the view</td><td>Bubble Tea commands on goroutines, results as messages</td><td>The same shape by hand: each piece of work is a closure on its own thread that sends one message through a channel. One thread reads keys, one sends the 10-second reload tick. No async runtime.</td></tr>
+    <tr><td>Drawing</td><td>Strings with ANSI codes, joined into one screen</td><td>ratatui <code>Line</code>s and <code>Span</code>s with styles, rendered into a frame; ratatui sends only the cells that changed.</td></tr>
+    <tr><td>"What happens on enter"</td><td>Closures stored in the model (<code>submit</code>, <code>cancel</code>, <code>answerYes</code>)</td><td>Enums (<code>PromptFor</code>, <code>ConfirmFor</code>, <code>ActionKind</code>) matched in one place, so every prompt and action is listed and the compiler checks none is forgotten.</td></tr>
+    <tr><td>Rows of a table</td><td><code>map[string]any</code> with type assertions</td><td>An <code>Item</code> enum: host, site, device, client, Wi-Fi network, alert.</td></tr>
+    <tr><td>Errors</td><td>Sentinel errors, <code>errors.Is</code> and <code>errors.As</code></td><td>One <code>Error</code> enum; front ends ask <code>is_auth()</code>, <code>is_unreachable()</code>, and so on. Added context keeps the class.</td></tr>
+    <tr><td>Shared state</td><td>Mutexes, checked by the race detector in tests</td><td><code>Arc</code> and <code>Mutex</code>, checked by the compiler.</td></tr>
+    <tr><td>Canceling</td><td><code>context.Context</code> through every call</td><td>No cancellation; every request has a time limit (<code>--timeout</code>, 15 s by default).</td></tr>
+    <tr><td>Certificate pin</td><td><code>VerifyConnection</code> callback</td><td>A rustls certificate verifier that compares the SHA-256 fingerprint and still verifies the handshake signature.</td></tr>
+    <tr><td>Keychain in tests</td><td>A global mock switched on per test</td><td>A <code>Keychain</code> trait handed to the app; tests pass one in memory, so they can run in parallel.</td></tr>
+    <tr><td>Screen tests</td><td>The model's text, with ANSI codes stripped</td><td>ratatui's <code>TestBackend</code>: the test reads the cells a terminal would show.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="numbers">Numbers</h2>
+
+<p>Measured on this branch on Linux x86-64, both as stripped release builds, against the fake controller on the same machine. They show the order of magnitude; a real controller's answer time dwarfs the difference in start-up.</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Measure</th><th class="num">Go</th><th class="num">Rust</th></tr></thead>
+  <tbody>
+    <tr><td>Executable size</td><td class="num">12.1 MB</td><td class="num">7.4 MB</td></tr>
+    <tr><td><code>gomada version</code>, median of 30 runs</td><td class="num">3.1 ms</td><td class="num">1.6 ms</td></tr>
+    <tr><td><code>gomada device list</code>, median of 30 runs</td><td class="num">5.0 ms</td><td class="num">3.3 ms</td></tr>
+    <tr><td>Peak memory of <code>device list</code></td><td class="num">about 13 MB</td><td class="num">about 13 MB</td></tr>
+    <tr><td>Dependencies (modules / crates, all levels)</td><td class="num">43</td><td class="num">235</td></tr>
+    <tr><td>Lines of code without tests (approximate)</td><td class="num">7400</td><td class="num">7500</td></tr>
+    <tr><td>Test functions</td><td class="num">232</td><td class="num">166</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>The Rust version has fewer tests: the Go tests were ported by behavior, not one for one, and some were merged. The dependency count also got worse. Rust crates are smaller than Go modules, and the pure-Rust Secret Service client and TLS stack bring most of them. <code>Cargo.lock</code> pins every one.</p>
+
+<h2 id="verified">What was checked</h2>
+<ul>
+  <li><strong>Unit and integration tests:</strong> 166 pass (121 in the library, 31 for the command line, 13 for the client and core, 1 for environment variables). They run against a Rust port of the fake controller and need no network.</li>
+  <li><strong>The Go golden files:</strong> all 23 CLI files and 11 of 12 screen files pass unchanged. The twelfth (the QR screen) was regenerated.</li>
+  <li><strong>Side by side:</strong> 100 commands run with the original Go executable and the Rust one, each against a fresh copy of the Go fake controller. 95 give identical output, error output, and exit code; the other 5 are the wording and QR differences in the table above.</li>
+  <li><strong>A real terminal:</strong> the interactive view was started in a pseudo-terminal and driven through the tabs, a QR code, the key list, and quit; it exited with code 0 and left the alternate screen.</li>
+  <li><strong>TLS:</strong> tests start an HTTPS server with a self-signed certificate and check the probe, refusal without a pin, acceptance with the right pin, refusal with a wrong pin, and the full "add host, then the certificate changes" story.</li>
+  <li><strong>No keychain:</strong> on this machine, which has none, <code>host add</code> fell back to the encrypted file, and the token went to the runtime directory with owner-only permissions.</li>
+  <li><strong>Lint:</strong> <code>cargo fmt --check</code> and <code>cargo clippy --all-targets -- -D warnings</code> are clean.</li>
+</ul>
+
+<h2 id="open">What was not checked</h2>
+<div class="note warn">
+  <p><strong>Read this before relying on the branch.</strong> These could not be tried in the environment the rewrite was made in.</p>
+</div>
+<ul>
+  <li><strong>A real Omada controller.</strong> Everything ran against the fake. The Go version had been used against a real one; the Rust client sends the same requests, but that is an argument, not a test. <code>tests/live.rs</code> is there for this.</li>
+  <li><strong>macOS and Windows.</strong> The code compiles for Linux here. The keychain code is written so that entries made by the Go version are found (the same target name on Windows, the same wrapping undone on macOS), but neither system was available. CI now runs the tests on both.</li>
+  <li><strong>A Linux desktop keychain.</strong> The Secret Service path (GNOME Keyring, KWallet) was not exercised, only its absence.</li>
+  <li><strong>The release workflow.</strong> <code>.github/workflows/release.yml</code> was rewritten for Rust (eight targets, including ARMv6 and ARMv7) and has not run yet. Expect to adjust it on its first run.</li>
+  <li><strong>Test coverage is somewhat thinner</strong> than in the Go version (166 test functions against 232), although every golden file and every user-visible flow of the Go tests has a counterpart.</li>
+  <li><strong>Things that were dropped:</strong> the 80% coverage floor script, the fuzz target for the response decoder (replaced by a small table of hostile inputs), and the vulnerability scan step. <code>cargo llvm-cov</code>, <code>cargo fuzz</code>, and <code>cargo audit</code> are the Rust counterparts if you want them back.</li>
+</ul>
+
+<footer>
+  <p>gomada · Rust rewrite on branch <code>claude/gifted-hypatia-c2v6z5</code> · no pull request was opened. The Go sources are in the history of <code>main</code>.</p>
+</footer>
+
+</main>
+</body>
+</html>

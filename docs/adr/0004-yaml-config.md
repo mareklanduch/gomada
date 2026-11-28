@@ -8,7 +8,7 @@ The hosts need to be stored somewhere a person can read and, if need be, edit.
 
 One YAML file, `config.yaml`, in the standard configuration directory of the
 operating system (`$XDG_CONFIG_HOME` is honored everywhere). YAML because it
-is the most common format among Go command-line tools. The file is read into
+is a common format among command-line tools. The file is read into
 a typed struct directly, without a configuration framework.
 
 - It carries a `version` number; `config.migrate` is where a future format

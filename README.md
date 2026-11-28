@@ -39,11 +39,14 @@ armv6, armv7), macOS (Intel and Apple silicon), and Windows (amd64, arm64).
 The executables are not signed yet, so macOS and Windows warn about an
 unidentified developer on first run.
 
-With Go installed you can also build it yourself:
+With [Rust](https://rustup.rs) installed you can also build it yourself:
 
 ```sh
-go install github.com/mareklanduch/gomada/cmd/gomada@latest
+cargo install --git https://github.com/mareklanduch/gomada
 ```
+
+or, from a checkout, `cargo build --release`; the executable is
+`target/release/gomada`.
 
 ## Set up
 
@@ -118,7 +121,7 @@ gomada client list | show | rename | block | unblock | reconnect
 gomada wifi   list | show | qr
 gomada alert  list | show
 gomada version
-gomada completion bash | zsh | fish | powershell
+gomada completion bash | zsh | fish | powershell | elvish
 ```
 
 ```sh
@@ -221,15 +224,22 @@ off with `--no-token-cache`, or with `no_token_cache: true` in the config.
 
 ## Development
 
+gomada is written in Rust; the interactive view is drawn with
+[ratatui](https://ratatui.rs).
+
 ```sh
-make check    # lint, tests with the race detector, coverage floor, cross-compile
-make golden   # rewrite expected output after an intended change
+cargo run             # open the interactive view
+cargo run -- --help   # or any command
+make check            # formatting, clippy, and the tests
+make golden           # rewrite expected output after an intended change
 ```
 
-No test needs a real controller: `internal/omada/omadatest` is a fake that
+No test needs a real controller: `tests/support/fake.rs` is a fake that
 speaks the same HTTP API. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
 layout and conventions, and [docs/adr](docs/adr) for why things are the way
-they are.
+they are. gomada was first written in Go;
+[docs/rust-rewrite.html](docs/rust-rewrite.html) explains what changed with
+the move to Rust and what stayed the same.
 
 ## License
 

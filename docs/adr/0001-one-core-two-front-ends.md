@@ -14,14 +14,15 @@ client in `omada` is a plain library that knows nothing about config files,
 keychains, or terminals.
 
 ```
-cli (Cobra) ─┐
+cli (clap)  ─┐
              ├─▶ app ─▶ omada   (HTTP client for the Open API)
-tui (Bubble ─┘      ├─▶ config  (hosts file)
-     Tea)           ├─▶ secret  (keychain, encrypted file, env)
+tui (rata-  ─┘      ├─▶ config  (hosts file)
+     tui)           ├─▶ secret  (keychain, encrypted file, env)
                     └─▶ tokencache
 ```
 
-Everything lives under `internal/`, so nothing becomes public API by accident.
+Everything is one crate that is not published as a library, so nothing
+becomes public API by accident.
 
 ## Consequences
 
